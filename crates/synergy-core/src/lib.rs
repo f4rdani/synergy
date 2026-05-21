@@ -92,6 +92,23 @@ impl Orchestrator {
         self
     }
 
+    /// Set the AI model for all workers by sending the `/model` command to each PTY.
+    /// In OpenCode CLI, `/model <name>` switches the active model.
+    pub async fn set_worker_model(&self, model: &str) -> Result<()> {
+        if model.is_empty() {
+            return Ok(());
+        }
+        let mut workers = self.workers.lock().await;
+        for worker in workers.iter_mut() {
+            self.adapter
+                .send_command(&mut worker.handle, &format!("/model {}", model))
+                .await?;
+            // Give a moment for the model switch to complete
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+        Ok(())
+    }
+
     /// Spawn `count` workers with the configured adapter.
     pub async fn spawn_workers(
         &self,

@@ -65,11 +65,19 @@ pub struct SessionState {
     pub logs: Vec<EventLog>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkerOutputEvent {
     pub worker_id: u32,
     pub task_id: Option<String>,
     pub chunk: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelInfo {
+    pub id: String,
+    pub name: String,
+    pub provider: String,
+    pub free: bool,
 }
 
 #[tauri::command]
@@ -695,6 +703,15 @@ async fn approve_plan<R: Runtime>(
         .await
         .map_err(|e| format!("Failed to spawn workers: {e:#}"))?;
 
+    // Set worker model if configured
+    let worker_model = cfg.workers.model.clone();
+    if !worker_model.is_empty() {
+        orchestrator
+            .set_worker_model(&worker_model)
+            .await
+            .map_err(|e| format!("Failed to set worker model: {e:#}"))?;
+    }
+
     let orch_arc = Arc::new(orchestrator);
     spawn_tick_loop(app.clone(), orch_arc.clone());
     spawn_output_pump(app.clone(), orch_arc.clone());
@@ -835,6 +852,52 @@ fn spawn_completion_monitor<R: Runtime>(
     });
 }
 
+/// Get the current worker model from config.
+#[tauri::command]
+async fn get_worker_model() -> Result<String, String> {
+    let cfg = SynergyConfig::load_default().unwrap_or_default();
+    Ok(cfg.workers.model)
+}
+
+/// Set the worker model in config and apply to running workers.
+#[tauri::command]
+async fn set_worker_model_cmd(
+    state: State<'_, AppState>,
+    model: String,
+) -> Result<(), String> {
+    // Update config file
+    let mut cfg = SynergyConfig::load_default().unwrap_or_default();
+    cfg.workers.model = model.clone();
+    let path = SynergyConfig::default_path().map_err(|e| e.to_string())?;
+    cfg.save_to(&path).map_err(|e| e.to_string())?;
+
+    // If orchestrator is running, update workers live
+    let orch_opt = state.orchestrator.lock().await;
+    if let Some(ref orch) = *orch_opt {
+        orch.set_worker_model(&model)
+            .await
+            .map_err(|e| format!("{e:#}"))?;
+    }
+
+    Ok(())
+}
+
+/// Get available OpenCode free models (hardcoded list since these are known).
+#[tauri::command]
+async fn get_available_models() -> Result<Vec<ModelInfo>, String> {
+    Ok(vec![
+        ModelInfo { id: "anthropic/claude-sonnet-4-20250514".to_owned(), name: "Claude Sonnet 4".to_owned(), provider: "Anthropic".to_owned(), free: true },
+        ModelInfo { id: "anthropic/claude-haiku-3-5".to_owned(), name: "Claude Haiku 3.5".to_owned(), provider: "Anthropic".to_owned(), free: true },
+        ModelInfo { id: "openai/gpt-4o-mini".to_owned(), name: "GPT-4o Mini".to_owned(), provider: "OpenAI".to_owned(), free: true },
+        ModelInfo { id: "openai/gpt-4.1-mini".to_owned(), name: "GPT-4.1 Mini".to_owned(), provider: "OpenAI".to_owned(), free: true },
+        ModelInfo { id: "openai/o4-mini".to_owned(), name: "o4-mini".to_owned(), provider: "OpenAI".to_owned(), free: true },
+        ModelInfo { id: "google/gemini-2.5-flash".to_owned(), name: "Gemini 2.5 Flash".to_owned(), provider: "Google".to_owned(), free: true },
+        ModelInfo { id: "google/gemini-2.5-pro".to_owned(), name: "Gemini 2.5 Pro".to_owned(), provider: "Google".to_owned(), free: true },
+        ModelInfo { id: "deepseek/deepseek-chat".to_owned(), name: "DeepSeek V3".to_owned(), provider: "DeepSeek".to_owned(), free: true },
+        ModelInfo { id: "deepseek/deepseek-reasoner".to_owned(), name: "DeepSeek R1".to_owned(), provider: "DeepSeek".to_owned(), free: true },
+    ])
+}
+
 pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .setup(|app| {
@@ -863,6 +926,9 @@ pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             choose_leader,
             send_to_leader,
             approve_plan,
-            get_session_flow_state
+            get_session_flow_state,
+            get_worker_model,
+            set_worker_model_cmd,
+            get_available_models
         ])
 }

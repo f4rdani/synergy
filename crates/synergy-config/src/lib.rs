@@ -87,6 +87,9 @@ pub struct WorkersConfig {
     pub count: u32,
     pub adapter: String,
     pub bin_path: String,
+    /// AI model for workers (e.g., "anthropic/claude-sonnet-4-20250514").
+    /// Sent as `/model <name>` to OpenCode workers after spawn.
+    pub model: String,
 }
 
 impl Default for WorkersConfig {
@@ -95,6 +98,7 @@ impl Default for WorkersConfig {
             count: 6,
             adapter: "opencode".to_owned(),
             bin_path: "opencode".to_owned(),
+            model: "anthropic/claude-sonnet-4-20250514".to_owned(),
         }
     }
 }

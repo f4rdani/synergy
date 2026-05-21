@@ -227,6 +227,23 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--surface1);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--surface2)}
+
+/* Settings Modal */
+.settings-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:2000}
+.settings-modal{background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;width:480px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 16px 48px rgba(0,0,0,0.5)}
+.settings-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid var(--border)}
+.settings-title{font-size:14px;font-weight:600;color:var(--text)}
+.settings-close{background:none;border:none;color:var(--text-dim);font-size:20px;cursor:pointer;padding:4px 8px;border-radius:4px}
+.settings-close:hover{background:rgba(255,255,255,0.05);color:var(--text)}
+.settings-body{flex:1;overflow-y:auto;padding:20px}
+.settings-section{margin-bottom:20px}
+.settings-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--accent);margin-bottom:12px}
+.settings-field{margin-bottom:16px}
+.settings-label{display:block;font-size:12px;font-weight:500;color:var(--text);margin-bottom:6px}
+.settings-select{width:100%;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:12px;outline:none;appearance:none;cursor:pointer}
+.settings-select:focus{border-color:var(--accent)}
+.settings-hint{font-size:10px;color:var(--text-dim);margin-top:4px;line-height:1.4}
+.settings-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;justify-content:flex-end}
 </style>
 </head>
 <body>
@@ -256,6 +273,9 @@ const APP = {
   leaderMessages: [],
   showTerminal: false,
   integratedTerm: null,
+  showSettings: false,
+  workerModel: 'anthropic/claude-sonnet-4-20250514',
+  availableModels: [],
 };
 
 // --- Tauri Bridge ---
@@ -306,7 +326,7 @@ function goTo(screen) {
 // --- Main Render ---
 function render() {
   const app = document.getElementById('app');
-  app.innerHTML = renderMenubar() + renderScreens() + renderBottomPanel() + renderStatusbar();
+  app.innerHTML = renderMenubar() + renderScreens() + renderBottomPanel() + renderStatusbar() + renderSettingsModal();
   attachEvents();
   attachMenuEvents();
   if (APP.showTerminal) initIntegratedTerminal();
@@ -687,6 +707,16 @@ function attachEvents() {
   const leaderInput = document.getElementById('leader-input');
   if (leaderInput) leaderInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleLeaderSend(); } });
 
+  // Settings modal
+  document.getElementById('btn-settings-close')?.addEventListener('click', () => {
+    APP.showSettings = false;
+    render();
+  });
+  document.getElementById('btn-settings-save')?.addEventListener('click', saveSettings);
+  document.getElementById('settings-overlay')?.addEventListener('click', (e) => {
+    if (e.target.id === 'settings-overlay') { APP.showSettings = false; render(); }
+  });
+
   // Scroll chat to bottom
   const chatArea = document.getElementById('chat-area');
   if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
@@ -887,6 +917,9 @@ function handleMenuAction(action) {
     case 'open-folder':
     case 'change-project':
       handleMenuOpenFolder();
+      break;
+    case 'settings':
+      openSettings();
       break;
     case 'toggle-sidebar':
       toggleSidebar();
@@ -1138,6 +1171,81 @@ function formatElapsed(ms) {
   return m + ':' + String(s).padStart(2, '0');
 }
 
+// --- Settings Modal ---
+function renderSettingsModal() {
+  if (!APP.showSettings) return '';
+  const currentModel = APP.workerModel || 'anthropic/claude-sonnet-4-20250514';
+  const models = APP.availableModels || [];
+  const modelOptions = models.map(m =>
+    `<option value="${m.id}" ${m.id === currentModel ? 'selected' : ''}>${m.name} (${m.provider})${m.free ? ' - Free' : ''}</option>`
+  ).join('');
+
+  return `<div class="settings-overlay" id="settings-overlay">
+    <div class="settings-modal">
+      <div class="settings-header">
+        <span class="settings-title">Settings</span>
+        <button class="settings-close" id="btn-settings-close">&times;</button>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <div class="settings-section-title">Worker Configuration</div>
+          <div class="settings-field">
+            <label class="settings-label">AI Model</label>
+            <select class="settings-select" id="select-worker-model">${modelOptions}</select>
+            <div class="settings-hint">Model used by all OpenCode workers. Uses /model command in OpenCode.</div>
+          </div>
+          <div class="settings-field">
+            <label class="settings-label">Max Workers</label>
+            <select class="settings-select" id="select-worker-count">
+              ${[1,2,3,4,5,6].map(n => `<option value="${n}" ${n === APP.workerCount ? 'selected' : ''}>${n}</option>`).join('')}
+            </select>
+            <div class="settings-hint">Maximum number of parallel workers (1-6). Actual count depends on task parallelism.</div>
+          </div>
+        </div>
+      </div>
+      <div class="settings-footer">
+        <button class="btn-primary" id="btn-settings-save">Save</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function openSettings() {
+  try {
+    APP.availableModels = await invoke('get_available_models');
+    APP.workerModel = await invoke('get_worker_model');
+  } catch(e) {
+    // Use defaults for mock mode
+    APP.availableModels = [
+      {id:'anthropic/claude-sonnet-4-20250514',name:'Claude Sonnet 4',provider:'Anthropic',free:true},
+      {id:'anthropic/claude-haiku-3-5',name:'Claude Haiku 3.5',provider:'Anthropic',free:true},
+      {id:'openai/gpt-4o-mini',name:'GPT-4o Mini',provider:'OpenAI',free:true},
+      {id:'openai/gpt-4.1-mini',name:'GPT-4.1 Mini',provider:'OpenAI',free:true},
+      {id:'openai/o4-mini',name:'o4-mini',provider:'OpenAI',free:true},
+      {id:'google/gemini-2.5-flash',name:'Gemini 2.5 Flash',provider:'Google',free:true},
+      {id:'google/gemini-2.5-pro',name:'Gemini 2.5 Pro',provider:'Google',free:true},
+      {id:'deepseek/deepseek-chat',name:'DeepSeek V3',provider:'DeepSeek',free:true},
+      {id:'deepseek/deepseek-reasoner',name:'DeepSeek R1',provider:'DeepSeek',free:true},
+    ];
+  }
+  APP.showSettings = true;
+  render();
+}
+
+async function saveSettings() {
+  const modelSelect = document.getElementById('select-worker-model');
+  const countSelect = document.getElementById('select-worker-count');
+  if (modelSelect) {
+    APP.workerModel = modelSelect.value;
+    try { await invoke('set_worker_model_cmd', { model: modelSelect.value }); } catch(e) {}
+  }
+  if (countSelect) {
+    APP.workerCount = parseInt(countSelect.value);
+  }
+  APP.showSettings = false;
+  render();
+}
+
 // --- Mock Mode (browser preview without Tauri) ---
 const mockListeners = {};
 const mockState = { session: null, tasks: [], workers: [], tickTimer: null };
@@ -1197,6 +1305,29 @@ async function mockInvoke(cmd, args = {}) {
     return { phase: APP.screen === 'executing' ? 'Executing' : 'Idle', project_dir: APP.projectDir, leader_adapter_id: APP.selectedAdapter ? APP.selectedAdapter.id : null };
   }
 
+  if (cmd === 'get_worker_model') {
+    return APP.workerModel || 'anthropic/claude-sonnet-4-20250514';
+  }
+
+  if (cmd === 'set_worker_model_cmd') {
+    APP.workerModel = args.model;
+    return;
+  }
+
+  if (cmd === 'get_available_models') {
+    return [
+      {id:'anthropic/claude-sonnet-4-20250514',name:'Claude Sonnet 4',provider:'Anthropic',free:true},
+      {id:'anthropic/claude-haiku-3-5',name:'Claude Haiku 3.5',provider:'Anthropic',free:true},
+      {id:'openai/gpt-4o-mini',name:'GPT-4o Mini',provider:'OpenAI',free:true},
+      {id:'openai/gpt-4.1-mini',name:'GPT-4.1 Mini',provider:'OpenAI',free:true},
+      {id:'openai/o4-mini',name:'o4-mini',provider:'OpenAI',free:true},
+      {id:'google/gemini-2.5-flash',name:'Gemini 2.5 Flash',provider:'Google',free:true},
+      {id:'google/gemini-2.5-pro',name:'Gemini 2.5 Pro',provider:'Google',free:true},
+      {id:'deepseek/deepseek-chat',name:'DeepSeek V3',provider:'DeepSeek',free:true},
+      {id:'deepseek/deepseek-reasoner',name:'DeepSeek R1',provider:'DeepSeek',free:true},
+    ];
+  }
+
   return null;
 }
 
@@ -1253,10 +1384,22 @@ function mockExecutionTick() {
 
 // --- Keyboard Shortcuts ---
 document.addEventListener('keydown', (e) => {
+  // Escape closes settings modal
+  if (e.key === 'Escape' && APP.showSettings) {
+    APP.showSettings = false;
+    render();
+    return;
+  }
+
   // Don't trigger shortcuts when focused on input/textarea
   const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-  if (tag === 'input' || tag === 'textarea') return;
+  if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
 
+  // Ctrl+, open settings
+  if (e.ctrlKey && e.key === ',') {
+    e.preventDefault();
+    openSettings();
+  }
   // Ctrl+` toggle terminal
   if (e.ctrlKey && e.key === '`') {
     e.preventDefault();
