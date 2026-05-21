@@ -9,11 +9,12 @@
     "windows": [
       {
         "label": "main",
-        "title": "Synergy - Multi-App AI Workspace Orchestrator",
+        "title": "Synergy",
+        "decorations": false,
         "width": 1400,
         "height": 900,
-        "minWidth": 1024,
-        "minHeight": 640,
+        "minWidth": 800,
+        "minHeight": 600,
         "resizable": true,
         "center": true
       }

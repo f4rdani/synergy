@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Capabilities for the Synergy main window - all session flow commands",
+  "description": "Capabilities for the Synergy main window",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -8,6 +8,12 @@
     "core:event:allow-emit",
     "core:event:allow-listen",
     "core:window:default",
-    "core:window:allow-set-title"
+    "core:window:allow-set-title",
+    "core:window:allow-minimize",
+    "core:window:allow-maximize",
+    "core:window:allow-close",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-decorations"
   ]
 }

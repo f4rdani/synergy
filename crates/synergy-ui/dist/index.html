@@ -20,12 +20,41 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .app{display:flex;flex-direction:column;height:100vh}
 .hidden{display:none!important}
 
-/* Titlebar */
-.titlebar{display:flex;align-items:center;height:36px;padding:0 16px;background:var(--bg-crust);border-bottom:1px solid var(--border);-webkit-app-region:drag;user-select:none}
-.titlebar-logo{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--accent);-webkit-app-region:no-drag}
-.titlebar-logo svg{width:16px;height:16px}
-.titlebar-center{flex:1;text-align:center;font-size:11px;color:var(--text-dim);font-weight:500}
-.titlebar-right{display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;font-size:11px;color:var(--text-dim)}
+/* Menu Bar */
+.menubar{display:flex;align-items:center;height:30px;padding:0;background:var(--bg-crust);border-bottom:1px solid var(--border);-webkit-app-region:drag;user-select:none;font-size:12px}
+.menubar-icon{display:flex;align-items:center;justify-content:center;width:46px;height:100%;-webkit-app-region:no-drag}
+.menubar-icon svg{width:16px;height:16px;color:var(--accent)}
+.menu-items{display:flex;align-items:center;height:100%;-webkit-app-region:no-drag}
+.menu-item{padding:0 8px;height:100%;display:flex;align-items:center;color:var(--text-sub);cursor:pointer;position:relative}
+.menu-item:hover{background:rgba(255,255,255,0.05);color:var(--text)}
+.menu-item.open{background:var(--surface0);color:var(--text)}
+.menu-dropdown{display:none;position:absolute;top:100%;left:0;min-width:200px;background:var(--bg-surface);border:1px solid var(--border);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.4);padding:4px 0;z-index:1000}
+.menu-dropdown.show{display:block}
+.menu-dropdown-item{display:flex;align-items:center;justify-content:space-between;padding:6px 24px 6px 12px;font-size:12px;color:var(--text);cursor:pointer}
+.menu-dropdown-item:hover{background:var(--accent);color:var(--bg-crust)}
+.menu-dropdown-item .shortcut{color:var(--text-dim);font-size:11px}
+.menu-dropdown-item:hover .shortcut{color:var(--bg-crust)}
+.menu-separator{height:1px;background:var(--border);margin:4px 8px}
+.menubar-spacer{flex:1}
+.window-controls{display:flex;align-items:center;height:100%;-webkit-app-region:no-drag}
+.win-btn{display:flex;align-items:center;justify-content:center;width:46px;height:100%;color:var(--text-sub);cursor:pointer}
+.win-btn:hover{background:rgba(255,255,255,0.07)}
+.win-btn.close:hover{background:var(--red);color:#fff}
+.win-btn svg{width:14px;height:14px}
+
+/* Bottom Terminal Panel */
+.bottom-panel{display:flex;flex-direction:column;background:var(--bg-overlay);border-top:1px solid var(--border);overflow:hidden;transition:height 0.2s}
+.bottom-panel.hidden{display:none}
+.bottom-panel-header{display:flex;align-items:center;height:35px;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px}
+.bottom-panel-tabs{display:flex;align-items:center;gap:0;height:100%}
+.bottom-panel-tab{display:flex;align-items:center;gap:6px;padding:0 12px;height:100%;color:var(--text-dim);cursor:pointer;border-right:1px solid var(--border);font-size:11px}
+.bottom-panel-tab.active{color:var(--text);background:var(--bg-overlay)}
+.bottom-panel-tab:hover{color:var(--text-sub)}
+.bottom-panel-actions{margin-left:auto;display:flex;align-items:center;gap:4px}
+.bottom-panel-btn{display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:4px;color:var(--text-dim);cursor:pointer}
+.bottom-panel-btn:hover{background:rgba(255,255,255,0.05);color:var(--text)}
+.bottom-panel-content{flex:1;min-height:0;background:var(--bg-overlay)}
+.terminal-instance{width:100%;height:100%}
 
 /* Screens */
 .screen{display:none;flex:1;min-height:0}
@@ -225,6 +254,8 @@ const APP = {
   startTime: null,
   pollInterval: null,
   leaderMessages: [],
+  showTerminal: false,
+  integratedTerm: null,
 };
 
 // --- Tauri Bridge ---
@@ -275,18 +306,83 @@ function goTo(screen) {
 // --- Main Render ---
 function render() {
   const app = document.getElementById('app');
-  app.innerHTML = renderTitlebar() + renderScreens() + renderStatusbar();
+  app.innerHTML = renderMenubar() + renderScreens() + renderBottomPanel() + renderStatusbar();
   attachEvents();
+  attachMenuEvents();
+  if (APP.showTerminal) initIntegratedTerminal();
 }
 
-function renderTitlebar() {
-  return `<div class="titlebar">
-    <div class="titlebar-logo">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
-      Synergy
+function renderMenubar() {
+  return `<div class="menubar">
+    <div class="menubar-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+    <div class="menu-items">
+      <div class="menu-item" data-menu="file">File
+        <div class="menu-dropdown" id="menu-file">
+          <div class="menu-dropdown-item" data-action="open-folder">Open Folder<span class="shortcut">Ctrl+O</span></div>
+          <div class="menu-dropdown-item" data-action="change-project">Change Project<span class="shortcut">Ctrl+Shift+O</span></div>
+          <div class="menu-separator"></div>
+          <div class="menu-dropdown-item" data-action="settings">Settings<span class="shortcut">Ctrl+,</span></div>
+          <div class="menu-separator"></div>
+          <div class="menu-dropdown-item" data-action="exit">Exit<span class="shortcut">Alt+F4</span></div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="edit">Edit
+        <div class="menu-dropdown" id="menu-edit">
+          <div class="menu-dropdown-item" data-action="undo">Undo<span class="shortcut">Ctrl+Z</span></div>
+          <div class="menu-dropdown-item" data-action="redo">Redo<span class="shortcut">Ctrl+Y</span></div>
+          <div class="menu-separator"></div>
+          <div class="menu-dropdown-item" data-action="copy">Copy<span class="shortcut">Ctrl+C</span></div>
+          <div class="menu-dropdown-item" data-action="paste">Paste<span class="shortcut">Ctrl+V</span></div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="view">View
+        <div class="menu-dropdown" id="menu-view">
+          <div class="menu-dropdown-item" data-action="toggle-sidebar">Toggle Sidebar<span class="shortcut">Ctrl+B</span></div>
+          <div class="menu-dropdown-item" data-action="toggle-terminal">Toggle Terminal<span class="shortcut">Ctrl+\`</span></div>
+          <div class="menu-dropdown-item" data-action="toggle-leader">Toggle Leader Panel<span class="shortcut">Ctrl+L</span></div>
+          <div class="menu-separator"></div>
+          <div class="menu-dropdown-item" data-action="zoom-in">Zoom In<span class="shortcut">Ctrl+=</span></div>
+          <div class="menu-dropdown-item" data-action="zoom-out">Zoom Out<span class="shortcut">Ctrl+-</span></div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="terminal">Terminal
+        <div class="menu-dropdown" id="menu-terminal">
+          <div class="menu-dropdown-item" data-action="new-terminal">New Terminal<span class="shortcut">Ctrl+Shift+\`</span></div>
+          <div class="menu-dropdown-item" data-action="clear-terminal">Clear Terminal</div>
+          <div class="menu-separator"></div>
+          <div class="menu-dropdown-item" data-action="kill-terminal">Kill Terminal</div>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="help">Help
+        <div class="menu-dropdown" id="menu-help">
+          <div class="menu-dropdown-item" data-action="about">About Synergy</div>
+          <div class="menu-dropdown-item" data-action="docs">Documentation</div>
+          <div class="menu-dropdown-item" data-action="shortcuts">Keyboard Shortcuts<span class="shortcut">Ctrl+K Ctrl+S</span></div>
+        </div>
+      </div>
     </div>
-    <div class="titlebar-center">Synergy - Multi-App AI Workspace Orchestrator</div>
-    <div class="titlebar-right"><span>v0.2.0</span></div>
+    <div class="menubar-spacer"></div>
+    <div class="window-controls">
+      <div class="win-btn" id="btn-minimize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg></div>
+      <div class="win-btn" id="btn-maximize"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="1"/></svg></div>
+      <div class="win-btn close" id="btn-close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg></div>
+    </div>
+  </div>`;
+}
+
+function renderBottomPanel() {
+  if (!APP.showTerminal) return '';
+  return `<div class="bottom-panel" id="bottom-panel" style="height:200px">
+    <div class="bottom-panel-header">
+      <div class="bottom-panel-tabs">
+        <div class="bottom-panel-tab active">Terminal</div>
+      </div>
+      <div class="bottom-panel-actions">
+        <div class="bottom-panel-btn" id="btn-new-term" title="New Terminal">+</div>
+        <div class="bottom-panel-btn" id="btn-close-term" title="Close Panel">&times;</div>
+      </div>
+    </div>
+    <div class="bottom-panel-content" id="integrated-terminal"></div>
   </div>`;
 }
 
@@ -709,6 +805,8 @@ function handleNewSession() {
   APP.logs = [];
   APP.leaderMessages = [];
   APP.startTime = null;
+  APP.showTerminal = false;
+  if (APP.integratedTerm) { APP.integratedTerm.dispose(); APP.integratedTerm = null; }
   disposeTerminals();
   if (APP.pollInterval) { clearInterval(APP.pollInterval); APP.pollInterval = null; }
   render();
@@ -724,6 +822,156 @@ async function handleLeaderSend() {
     await invoke('send_to_leader', { message: text });
   } catch (e) {}
   updateLeaderChat();
+}
+
+// --- Menu Bar Logic ---
+function attachMenuEvents() {
+  document.querySelectorAll('.menu-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dropdown = item.querySelector('.menu-dropdown');
+      const wasOpen = dropdown.classList.contains('show');
+      closeAllMenus();
+      if (!wasOpen) {
+        dropdown.classList.add('show');
+        item.classList.add('open');
+      }
+    });
+  });
+
+  document.addEventListener('click', closeAllMenus);
+
+  document.querySelectorAll('.menu-dropdown-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = item.dataset.action;
+      closeAllMenus();
+      handleMenuAction(action);
+    });
+  });
+
+  // Window controls
+  const btnMin = document.getElementById('btn-minimize');
+  if (btnMin) btnMin.addEventListener('click', () => {
+    if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().minimize();
+  });
+  const btnMax = document.getElementById('btn-maximize');
+  if (btnMax) btnMax.addEventListener('click', () => {
+    if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().toggleMaximize();
+  });
+  const btnClose = document.getElementById('btn-close');
+  if (btnClose) btnClose.addEventListener('click', () => {
+    if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().close();
+  });
+
+  // Bottom panel buttons
+  const btnNewTerm = document.getElementById('btn-new-term');
+  if (btnNewTerm) btnNewTerm.addEventListener('click', () => {
+    // Already open, just focus
+  });
+  const btnCloseTerm = document.getElementById('btn-close-term');
+  if (btnCloseTerm) btnCloseTerm.addEventListener('click', () => {
+    APP.showTerminal = false;
+    if (APP.integratedTerm) { APP.integratedTerm.dispose(); APP.integratedTerm = null; }
+    render();
+  });
+}
+
+function closeAllMenus() {
+  document.querySelectorAll('.menu-dropdown').forEach(d => d.classList.remove('show'));
+  document.querySelectorAll('.menu-item').forEach(i => i.classList.remove('open'));
+}
+
+function handleMenuAction(action) {
+  switch(action) {
+    case 'open-folder':
+    case 'change-project':
+      handleMenuOpenFolder();
+      break;
+    case 'toggle-sidebar':
+      toggleSidebar();
+      break;
+    case 'toggle-terminal':
+      toggleTerminal();
+      break;
+    case 'toggle-leader':
+      toggleLeaderPanel();
+      break;
+    case 'new-terminal':
+      APP.showTerminal = true;
+      if (APP.integratedTerm) { APP.integratedTerm.dispose(); APP.integratedTerm = null; }
+      render();
+      break;
+    case 'clear-terminal':
+      if (APP.integratedTerm) APP.integratedTerm.clear();
+      break;
+    case 'kill-terminal':
+      APP.showTerminal = false;
+      if (APP.integratedTerm) { APP.integratedTerm.dispose(); APP.integratedTerm = null; }
+      render();
+      break;
+    case 'exit':
+      if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().close();
+      break;
+    case 'zoom-in':
+      document.body.style.fontSize = (parseInt(getComputedStyle(document.body).fontSize) + 1) + 'px';
+      break;
+    case 'zoom-out':
+      document.body.style.fontSize = (parseInt(getComputedStyle(document.body).fontSize) - 1) + 'px';
+      break;
+    case 'about':
+      alert('Synergy v0.2.0\nMulti-App AI Workspace Orchestrator');
+      break;
+  }
+}
+
+async function handleMenuOpenFolder() {
+  const folder = await openFolderDialog();
+  if (folder) {
+    APP.projectDir = folder;
+    try { await invoke('select_folder', { path: folder }); } catch (e) {}
+    await loadAdaptersAndGo();
+  }
+}
+
+function toggleTerminal() {
+  if (APP.integratedTerm) { APP.integratedTerm.dispose(); APP.integratedTerm = null; }
+  APP.showTerminal = !APP.showTerminal;
+  render();
+}
+
+function toggleSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  if (sidebar) sidebar.classList.toggle('hidden');
+}
+
+function toggleLeaderPanel() {
+  const panel = document.querySelector('.leader-panel');
+  if (panel) panel.classList.toggle('hidden');
+}
+
+function initIntegratedTerminal() {
+  const container = document.getElementById('integrated-terminal');
+  if (!container || APP.integratedTerm) return;
+  if (typeof Terminal === 'undefined') return;
+  const term = new Terminal({
+    theme: { background: '#11111b', foreground: '#cdd6f4', cursor: '#89b4fa' },
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 12,
+    cursorBlink: true,
+  });
+  term.open(container);
+  if (typeof FitAddon !== 'undefined') {
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    setTimeout(() => { try { fitAddon.fit(); } catch(e) {} }, 50);
+    new ResizeObserver(() => { try { fitAddon.fit(); } catch(e) {} }).observe(container);
+  }
+  term.writeln('\x1b[38;2;137;180;250mSynergy Terminal\x1b[0m');
+  term.writeln('Type commands here (connected to system shell when available)');
+  term.writeln('');
+  term.write('\x1b[38;2;166;227;161m$\x1b[0m ');
+  APP.integratedTerm = term;
 }
 
 // --- Executing screen init ---
@@ -1002,6 +1250,29 @@ function mockExecutionTick() {
     setTimeout(() => emitMockEvent('session-state-changed', { phase: 'reviewing' }), 500);
   }
 }
+
+// --- Keyboard Shortcuts ---
+document.addEventListener('keydown', (e) => {
+  // Don't trigger shortcuts when focused on input/textarea
+  const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+  if (tag === 'input' || tag === 'textarea') return;
+
+  // Ctrl+` toggle terminal
+  if (e.ctrlKey && e.key === '`') {
+    e.preventDefault();
+    toggleTerminal();
+  }
+  // Ctrl+B toggle sidebar
+  if (e.ctrlKey && e.key === 'b') {
+    e.preventDefault();
+    toggleSidebar();
+  }
+  // Ctrl+L toggle leader panel
+  if (e.ctrlKey && e.key === 'l') {
+    e.preventDefault();
+    toggleLeaderPanel();
+  }
+});
 
 // --- Boot ---
 subscribeEvents();
