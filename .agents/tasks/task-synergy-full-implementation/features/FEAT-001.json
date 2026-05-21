@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Complete Frontend UI with multi-screen session flow - Welcome/folder picker, Leader selection, Chat planning interface, Plan approval, Worker dashboard, and Status bar. Replaces the existing minimal index.html with a full single-page application using vanilla HTML/CSS/JS that implements the complete user flow from the prototype.html design.",
+  "status": "in_progress",
+  "steps": [
+    "Step 1: Create the full frontend at crates/synergy-ui/dist/index.html. The app must implement a multi-screen SPA with these screens/states: (a) WELCOME screen - landing page with app branding, 'Open Folder' button triggering a folder picker dialog, and 'Create New Project' option. (b) LEADER_SELECT screen - shown after folder is selected; displays cards/list of available adapters from adapters.toml (opencode, aider, claude-cli, codex-cli, cursor, kiro, vscode, windsurf) with their type (cli/gui) and description; user picks one as Leader. (c) PLANNING screen - chat interface where user talks to Leader; user types requests, Leader responds with plans; shows message bubbles (user/assistant/system). (d) PLAN_REVIEW screen - displays parsed tasks from Leader's plan in a checklist; user can Approve or Request Changes. (e) EXECUTING screen - the main 3-column layout from prototype.html: Progress panel (left, ~10%), Workers grid (center, ~55%), Leader chat (right, ~35%). Shows real-time worker output via xterm.js terminals, task progress, worker status dots, activity log. (f) COMPLETE screen - summary of completed session.",
+    "Step 2: Implement screen navigation state machine in JS. Track current screen state (welcome, leader_select, planning, plan_review, executing, complete). Transitions: welcome->leader_select (on folder picked), leader_select->planning (on leader chosen), planning->plan_review (when plan is detected), plan_review->executing (on approve), executing->complete (when all tasks done).",
+    "Step 3: Welcome screen implementation - Show Synergy logo/branding, project folder path input with 'Browse' button. The Browse button calls Tauri's dialog API (window.__TAURI__.dialog.open with directory:true) or falls back to a text input. Store selected folder path in app state.",
+    "Step 4: Leader selection screen - Fetch available adapters via a new Tauri command 'get_adapters' (to be added in FEAT-002). Display them as clickable cards showing: adapter id, type badge (CLI/GUI), description. On selection, store chosen adapter and transition to planning screen.",
+    "Step 5: Planning/Chat screen - Full chat interface with message list (scrollable), textarea input, send button. Messages rendered as bubbles: user messages right-aligned in accent color, assistant messages left-aligned in surface color, system messages centered and dim. When user sends a message, call 'send_to_leader' Tauri command (FEAT-002). Listen for 'leader-output' Tauri event to receive Leader's streamed response. Detect when Leader's response contains a numbered/bullet plan (use same regex pattern as backend: lines matching /^\\s*\\d+[.)]/). When plan detected, show 'Review Plan' button that transitions to plan_review screen.",
+    "Step 6: Plan Review screen - Parse the Leader's plan text into individual task items. Display as a numbered list with checkboxes. Show two buttons: 'Approve & Execute' (calls 'approve_plan' command from FEAT-002, transitions to executing) and 'Request Changes' (returns to planning screen with a pre-filled message asking for revisions).",
+    "Step 7: Executing screen (main dashboard) - Implement the 3-column layout matching prototype.html design: Left panel (Progress): task checklist with status icons, progress bar, worker status summary, activity log. Center panel (Workers): 2x3 grid of worker cards each containing an xterm.js terminal instance with live output, status dot, proxy IP label, current task label. Right panel (Leader): ongoing chat with Leader showing batch reports and review status. Status bar at bottom showing: leader name, workers busy/total, proxy status, task progress.",
+    "Step 8: Wire up real-time events - Listen for 'worker-output' Tauri event and route chunks to the correct worker terminal. Listen for 'session-state-changed' event (FEAT-002) to update progress panel. Poll get_state every 1 second as fallback for state updates. Listen for 'leader-output' event for Leader chat messages during execution.",
+    "Step 9: Complete screen - Show session summary: total tasks completed, time elapsed, any escalated/failed tasks. Offer 'New Session' button to return to welcome screen.",
+    "Step 10: Implement mock mode for browser preview (no Tauri available) - detect if window.__TAURI__ is undefined and use mock functions that simulate the flow with fake data. This allows the UI to be previewed in a browser without the Tauri backend.",
+    "Step 11: Style everything using the dark theme CSS variables from prototype.html (catppuccin-mocha inspired: --bg:#1e1e2e, --accent:#89b4fa, etc). Ensure the UI is responsive within the Tauri window (min 1024x640 per tauri.conf.json). Use JetBrains Mono for terminals, Inter for UI text. Include the xterm.js and xterm-addon-fit libraries via CDN links (they're already referenced in the existing index.html)."
+  ],
+  "acceptance_criteria": [
+    "The file crates/synergy-ui/dist/index.html exists and contains a complete SPA with all 6 screens",
+    "Welcome screen shows folder picker UI and transitions to leader selection on folder choice",
+    "Leader selection screen displays adapter cards and transitions to planning on selection",
+    "Planning screen provides chat interface with message rendering and plan detection",
+    "Plan review screen shows parsed tasks and approve/revise buttons",
+    "Executing screen shows 3-column layout with worker terminals, progress panel, and leader chat",
+    "Status bar shows session info (leader, workers, tasks, progress)",
+    "Mock mode allows browser preview without Tauri backend",
+    "All Tauri invoke calls use correct command names matching FEAT-002 additions",
+    "CSS uses dark theme consistent with prototype.html design language"
+  ],
+  "verification": [
+    "Read crates/synergy-ui/dist/index.html and verify it contains all screen implementations",
+    "Verify the file references correct Tauri command names (init_session, get_state, get_adapters, select_folder, choose_leader, send_to_leader, approve_plan)",
+    "Verify xterm.js terminal setup code exists for worker panels",
+    "Verify state machine transitions are implemented in JavaScript"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

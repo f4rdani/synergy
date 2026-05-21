@@ -18,63 +18,159 @@
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:13px;overflow:hidden}
 .app{display:flex;flex-direction:column;height:100vh}
+.hidden{display:none!important}
 
-/* ─── Menu Bar (VS Code style) ─── */
-.menubar{display:flex;align-items:center;height:30px;background:var(--bg-crust);border-bottom:1px solid var(--border);padding:0 8px;user-select:none;-webkit-app-region:drag}
-.menubar-left{display:flex;align-items:center;gap:0;-webkit-app-region:no-drag}
-.menu-item{padding:4px 10px;font-size:12px;color:var(--text-sub);cursor:pointer;border-radius:4px;position:relative}
-.menu-item:hover{background:var(--surface0);color:var(--text)}
-.menubar-center{flex:1;text-align:center;font-size:11px;color:var(--text-dim);font-weight:500}
-.menubar-right{display:flex;align-items:center;gap:6px;-webkit-app-region:no-drag}
-.menubar-right .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+/* Titlebar */
+.titlebar{display:flex;align-items:center;height:36px;padding:0 16px;background:var(--bg-crust);border-bottom:1px solid var(--border);-webkit-app-region:drag;user-select:none}
+.titlebar-logo{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--accent);-webkit-app-region:no-drag}
+.titlebar-logo svg{width:16px;height:16px}
+.titlebar-center{flex:1;text-align:center;font-size:11px;color:var(--text-dim);font-weight:500}
+.titlebar-right{display:flex;align-items:center;gap:8px;-webkit-app-region:no-drag;font-size:11px;color:var(--text-dim)}
 
-/* ─── Main Layout ─── */
-.main-layout{flex:1;display:flex;min-height:0}
-.sidebar{width:48px;background:var(--bg-crust);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:4px}
-.sidebar-icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-dim);transition:all .15s}
-.sidebar-icon:hover{background:var(--surface0);color:var(--text)}
-.sidebar-icon.active{color:var(--accent);background:rgba(137,180,250,.1)}
-.content-area{flex:1;display:flex;min-height:0}
+/* Screens */
+.screen{display:none;flex:1;min-height:0}
+.screen.active{display:flex}
 
-/* ─── Panel: Workers ─── */
-.panel-workers{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border)}
-.panel-header{height:36px;display:flex;align-items:center;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px;gap:8px}
-.panel-header .badge{background:var(--surface0);color:var(--accent);padding:1px 6px;border-radius:3px;font-size:10px}
-.workers-grid{flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1px;background:var(--border);overflow-y:auto}
-.worker-card{background:var(--bg);display:flex;flex-direction:column;min-height:180px}
-.worker-top{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg-surface);border-bottom:1px solid var(--border)}
-.worker-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600}
-.worker-label .dot{width:6px;height:6px;border-radius:50%}
-.dot-idle{background:var(--text-dim)}.dot-working{background:var(--accent);box-shadow:0 0 6px var(--accent);animation:pulse 1.2s infinite}
-.dot-done{background:var(--green)}.dot-error{background:var(--red)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-.worker-ip{font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
-.worker-term{flex:1;background:var(--bg-overlay);padding:4px;min-height:0}
-.worker-input{display:flex;padding:4px 6px;background:var(--bg-surface);border-top:1px solid var(--border);gap:4px}
-.worker-input input{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:3px;padding:4px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);outline:none}
-.worker-input input:focus{border-color:var(--accent)}
+/* Welcome */
+.welcome-screen{align-items:center;justify-content:center;flex-direction:column;gap:20px}
+.welcome-logo svg{width:64px;height:64px;color:var(--accent)}
+.welcome-title{font-size:28px;font-weight:700;color:var(--text);letter-spacing:-0.5px}
+.welcome-subtitle{font-size:14px;color:var(--text-sub);margin-top:4px}
+.welcome-version{font-size:11px;color:var(--text-dim);margin-top:2px}
+.welcome-actions{display:flex;flex-direction:column;gap:12px;align-items:center;margin-top:16px}
+.btn-primary{background:var(--accent);color:var(--bg-crust);border:none;border-radius:8px;padding:12px 32px;font-size:14px;font-weight:600;cursor:pointer;transition:opacity .15s}
+.btn-primary:hover{opacity:.85}
+.btn-secondary{background:var(--surface0);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:10px 24px;font-size:13px;cursor:pointer;transition:all .15s}
+.btn-secondary:hover{border-color:var(--accent);color:var(--accent)}
+.folder-input-row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.folder-input{background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:10px 14px;color:var(--text);font-size:12px;width:320px;outline:none;font-family:'JetBrains Mono',monospace}
+.folder-input:focus{border-color:var(--accent)}
+.folder-input-btn{background:var(--surface0);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;cursor:pointer}
+.folder-input-btn:hover{border-color:var(--accent)}
 
-/* ─── Panel: Leader (Chat) ─── */
-.panel-leader{width:420px;display:flex;flex-direction:column;min-height:0;background:var(--bg-surface)}
-.leader-provider{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)}
-.leader-provider select{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);font-size:12px;outline:none;cursor:pointer}
-.leader-provider select:focus{border-color:var(--accent)}
-.chat-area{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
-.chat-msg{max-width:90%;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.5;word-break:break-word}
-.chat-msg.user{align-self:flex-end;background:var(--accent);color:var(--bg-crust);border-bottom-right-radius:2px}
-.chat-msg.assistant{align-self:flex-start;background:var(--surface0);color:var(--text);border-bottom-left-radius:2px}
-.chat-msg.system{align-self:center;background:transparent;color:var(--text-dim);font-size:11px;font-style:italic}
-.chat-input-area{padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px}
-.chat-input-area textarea{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-family:inherit;font-size:13px;resize:none;outline:none;min-height:40px;max-height:120px}
+/* Leader Select */
+.leader-select-screen{flex-direction:column;padding:32px;gap:16px;overflow-y:auto}
+.screen-title{font-size:20px;font-weight:700;color:var(--text)}
+.screen-subtitle{font-size:13px;color:var(--text-sub);margin-top:4px}
+.adapters-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-top:12px}
+.adapter-card{background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:16px;cursor:pointer;transition:all .15s}
+.adapter-card:hover{border-color:var(--accent);background:var(--bg-overlay)}
+.adapter-card.selected{border-color:var(--accent);box-shadow:0 0 0 2px rgba(137,180,250,.2)}
+.adapter-card-header{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.adapter-card-id{font-size:14px;font-weight:600;color:var(--text)}
+.adapter-type-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:.5px}
+.badge-cli{background:rgba(166,227,161,.12);color:var(--green)}
+.badge-gui{background:rgba(203,166,247,.12);color:var(--mauve)}
+.adapter-card-desc{font-size:12px;color:var(--text-sub);line-height:1.4}
+
+/* Planning Chat */
+.planning-screen{flex-direction:column;background:var(--bg)}
+.chat-area{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px}
+.chat-msg{max-width:80%;padding:12px 16px;border-radius:12px;font-size:13px;line-height:1.6;word-break:break-word;white-space:pre-wrap}
+.chat-msg.user{align-self:flex-end;background:var(--accent);color:var(--bg-crust);border-bottom-right-radius:3px}
+.chat-msg.assistant{align-self:flex-start;background:var(--surface0);color:var(--text);border-bottom-left-radius:3px}
+.chat-msg.system{align-self:center;background:transparent;color:var(--text-dim);font-size:11px;font-style:italic;text-align:center}
+.chat-input-area{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:10px;background:var(--bg-surface)}
+.chat-input-area textarea{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:inherit;font-size:13px;resize:none;outline:none;min-height:44px;max-height:140px}
 .chat-input-area textarea:focus{border-color:var(--accent)}
-.chat-input-area button{align-self:flex-end;background:var(--accent);border:none;border-radius:6px;padding:8px 14px;color:var(--bg-crust);font-weight:600;font-size:12px;cursor:pointer}
-.chat-input-area button:hover{opacity:.85}
+.chat-send-btn{align-self:flex-end;background:var(--accent);border:none;border-radius:8px;padding:10px 18px;color:var(--bg-crust);font-weight:600;font-size:13px;cursor:pointer}
+.chat-send-btn:hover{opacity:.85}
+.btn-review-plan{background:var(--green);color:var(--bg-crust);border:none;border-radius:8px;padding:10px 20px;font-weight:600;font-size:13px;cursor:pointer;margin:0 auto 8px}
+.btn-review-plan:hover{opacity:.85}
 
-/* ─── Status Bar ─── */
-.statusbar{height:24px;display:flex;align-items:center;padding:0 10px;background:var(--accent);color:var(--bg-crust);font-size:11px;font-weight:500;gap:14px}
-.statusbar .sep{width:1px;height:12px;background:rgba(0,0,0,.2)}
+/* Plan Review */
+.plan-review-screen{flex-direction:column;padding:32px;gap:16px;overflow-y:auto}
+.plan-tasks-list{list-style:none;display:flex;flex-direction:column;gap:8px;margin:12px 0}
+.plan-task-item{display:flex;align-items:flex-start;gap:10px;padding:12px 16px;background:var(--bg-surface);border:1px solid var(--border);border-radius:8px;font-size:13px}
+.plan-task-item .task-num{font-weight:700;color:var(--accent);min-width:24px}
+.plan-task-item .task-text{color:var(--text)}
+.plan-actions{display:flex;gap:12px;margin-top:8px}
 
-/* ─── Scrollbar ─── */
+/* Executing */
+.executing-screen{flex-direction:row;background:var(--bg)}
+.progress-panel{width:200px;min-width:160px;background:var(--bg-surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+.progress-header{padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-sub)}
+.progress-section{padding:10px;flex:1;overflow-y:auto}
+.exec-task-list{list-style:none}
+.exec-task-item{display:flex;align-items:flex-start;gap:6px;padding:4px 6px;font-size:11px;line-height:1.4;border-radius:4px}
+.exec-task-item:hover{background:rgba(255,255,255,.03)}
+.exec-task-icon{flex-shrink:0;width:14px;text-align:center;font-size:10px}
+.task-done .exec-task-icon{color:var(--green)}
+.task-running .exec-task-icon{color:var(--accent)}
+.task-pending .exec-task-icon{color:var(--text-dim)}
+.exec-task-text{color:var(--text)}
+.task-done .exec-task-text{color:var(--text-dim);text-decoration:line-through}
+.progress-bar-container{margin:10px 0}
+.progress-bar-label{display:flex;justify-content:space-between;font-size:10px;color:var(--text-sub);margin-bottom:4px}
+.progress-bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--teal));border-radius:3px;transition:width .5s}
+.worker-status-section{margin-top:8px}
+.worker-status-title{font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;padding:0 6px}
+.worker-mini{display:flex;align-items:center;gap:5px;padding:2px 6px;font-size:10px;font-family:'JetBrains Mono',monospace}
+.worker-mini-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.worker-mini-dot.wk-active{background:var(--green);box-shadow:0 0 4px var(--green)}
+.worker-mini-dot.wk-working{background:var(--accent);box-shadow:0 0 4px var(--accent)}
+.worker-mini-dot.wk-idle{background:var(--text-dim)}
+.worker-mini-label{color:var(--text-sub)}
+.worker-mini-task{margin-left:auto;color:var(--text-dim);font-size:9px}
+.log-section{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+.log-title{font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;padding:0 6px}
+.log-entry{padding:2px 6px;font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--text-dim);line-height:1.4}
+
+/* Workers panel center */
+.workers-panel{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border)}
+.workers-panel-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px}
+.workers-panel-title{font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px}
+.workers-panel-title .badge{background:var(--accent);color:var(--bg-crust);font-size:9px;padding:2px 7px;border-radius:8px;font-weight:600}
+.workers-grid{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr 1fr;gap:1px;background:var(--border);overflow:hidden}
+.worker-cell{display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
+.worker-header-row{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:10px}
+.worker-badge-name{display:flex;align-items:center;gap:4px;font-weight:600;color:var(--text)}
+.worker-dot{width:6px;height:6px;border-radius:50%}
+.worker-dot.green{background:var(--green);box-shadow:0 0 6px rgba(166,227,161,.5)}
+.worker-dot.blue{background:var(--accent);box-shadow:0 0 6px rgba(137,180,250,.5);animation:pulse 1.5s ease infinite}
+.worker-dot.gray{background:var(--text-dim)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.worker-meta-info{display:flex;gap:8px;margin-left:auto;font-size:9px;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+.worker-meta-info .proxy{color:var(--teal)}
+.worker-meta-info .task-lbl{color:var(--mauve)}
+.w-status-badge{font-size:8px;font-weight:600;padding:1px 5px;border-radius:5px;text-transform:uppercase}
+.w-badge-working{background:rgba(137,180,250,.12);color:var(--accent)}
+.w-badge-done{background:rgba(166,227,161,.12);color:var(--green)}
+.w-badge-idle{background:rgba(88,91,112,.15);color:var(--text-dim)}
+.w-badge-error{background:rgba(243,139,168,.12);color:var(--red)}
+.worker-term-container{flex:1;min-height:0;background:var(--bg-overlay)}
+
+/* Leader panel right */
+.leader-panel{width:320px;min-width:260px;display:flex;flex-direction:column;background:var(--bg-surface)}
+.leader-header-bar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border)}
+.leader-icon{width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,var(--accent),var(--mauve));display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff}
+.leader-info{flex:1}
+.leader-name{font-size:12px;font-weight:600;color:var(--text)}
+.leader-model-lbl{font-size:10px;color:var(--mauve);font-family:'JetBrains Mono',monospace}
+.leader-chat-area{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.leader-chat-input{padding:8px 12px;border-top:1px solid var(--border);display:flex;gap:8px}
+.leader-chat-input textarea{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-family:inherit;font-size:12px;resize:none;outline:none;min-height:36px;max-height:100px}
+.leader-chat-input textarea:focus{border-color:var(--accent)}
+.leader-chat-input button{align-self:flex-end;background:var(--accent);border:none;border-radius:6px;padding:8px 12px;color:var(--bg-crust);font-weight:600;font-size:11px;cursor:pointer}
+.leader-chat-input button:hover{opacity:.85}
+
+/* Complete screen */
+.complete-screen{align-items:center;justify-content:center;flex-direction:column;gap:20px}
+.complete-icon{font-size:48px}
+.complete-title{font-size:24px;font-weight:700;color:var(--text)}
+.complete-stats{display:flex;gap:24px;margin-top:8px}
+.stat-item{text-align:center}
+.stat-value{font-size:20px;font-weight:700;color:var(--accent)}
+.stat-label{font-size:11px;color:var(--text-sub);margin-top:2px}
+
+/* Status bar */
+.statusbar{height:26px;display:flex;align-items:center;padding:0 12px;background:var(--accent);color:var(--bg-crust);font-size:11px;font-weight:500;gap:16px}
+.statusbar .sep{width:1px;height:14px;background:rgba(0,0,0,.2)}
+.statusbar .mini-bar{width:60px;height:4px;background:rgba(0,0,0,.2);border-radius:2px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:4px}
+.statusbar .mini-bar-fill{height:100%;background:var(--bg-crust);border-radius:2px;transition:width .5s}
+
+/* Scrollbar */
 ::-webkit-scrollbar{width:6px;height:6px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--surface1);border-radius:3px}
@@ -86,261 +182,723 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
 <script>
-// ═══════════════════════════════════════════════════════════════════════
-// Synergy UI — Functional Leader Chat + Worker Terminals
-// ═══════════════════════════════════════════════════════════════════════
+// Synergy UI - Complete SPA with multi-screen session flow
+// State machine: welcome -> leader_select -> planning -> plan_review -> executing -> complete
 
-const STATE = {
-  sessionId: null, workerCount: 6,
-  messages: [], terminals: new Map(), workers: [],
+const APP = {
+  screen: 'welcome',
+  projectDir: null,
+  adapters: [],
+  selectedAdapter: null,
+  sessionId: null,
+  messages: [],
+  planText: '',
+  planTasks: [],
+  execTasks: [],
+  workers: [],
+  workerCount: 6,
+  terminals: new Map(),
+  logs: [],
+  startTime: null,
+  pollInterval: null,
+  leaderMessages: [],
 };
 
-// ─── Render ──────────────────────────────────────────────────────────
+// --- Tauri Bridge ---
+const tauriBridge = (() => {
+  const t = window.__TAURI__;
+  if (t && t.core && typeof t.core.invoke === 'function') {
+    return {
+      invoke: t.core.invoke.bind(t.core),
+      listen: t.event ? t.event.listen.bind(t.event) : null,
+      dialog: t.dialog || null,
+    };
+  }
+  return null;
+})();
+
+async function invoke(cmd, args = {}) {
+  if (tauriBridge) return tauriBridge.invoke(cmd, args);
+  return mockInvoke(cmd, args);
+}
+
+async function listen(ev, cb) {
+  if (tauriBridge && tauriBridge.listen) return tauriBridge.listen(ev, cb);
+  if (!mockListeners[ev]) mockListeners[ev] = [];
+  mockListeners[ev].push(cb);
+  return () => { mockListeners[ev] = mockListeners[ev].filter(x => x !== cb); };
+}
+
+async function openFolderDialog() {
+  if (tauriBridge && tauriBridge.dialog) {
+    try {
+      const result = await window.__TAURI__.dialog.open({ directory: true });
+      return result;
+    } catch (e) { return null; }
+  }
+  // Mock: prompt fallback
+  return '/home/user/my-project';
+}
+
+// --- Screen transitions ---
+function goTo(screen) {
+  APP.screen = screen;
+  render();
+  if (screen === 'executing') {
+    initExecutingScreen();
+  }
+}
+
+// --- Main Render ---
 function render() {
-  document.getElementById('app').innerHTML = `
-    <div class="menubar">
-      <div class="menubar-left"></div>
-      <div class="menubar-center">Synergy — Multi-App AI Workspace Orchestrator</div>
-      <div class="menubar-right">
-        <span class="dot"></span>
-        <span style="font-size:11px;color:var(--text-dim)">Workers: <span id="sbWorkers">0/6</span></span>
-      </div>
+  const app = document.getElementById('app');
+  app.innerHTML = renderTitlebar() + renderScreens() + renderStatusbar();
+  attachEvents();
+}
+
+function renderTitlebar() {
+  return `<div class="titlebar">
+    <div class="titlebar-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      Synergy
     </div>
-    <div class="main-layout">
-      <div class="sidebar">
-        <div class="sidebar-icon active" title="Workers">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-        </div>
-      </div>
-      <div class="content-area">
-        <div class="panel-workers">
-          <div class="panel-header">
-            <span>Workers (OpenCode Free)</span>
-            <span class="badge" id="workerBadge">6 instances · each with unique IP</span>
-          </div>
-          <div class="workers-grid" id="workersGrid"></div>
-        </div>
-        <div class="panel-leader">
-          <div class="panel-header"><span>Leader</span></div>
-          <div class="chat-area" id="chatArea">
-            <div class="chat-msg system">Send any message. It will be executed by an idle Worker.<br><br>Tips:<br>• Single command → sent to 1 Worker<br>• Numbered list → each item sent to a different Worker in parallel</div>
-          </div>
-          <div class="chat-input-area">
-            <textarea id="chatInput" placeholder="Type a task or plan..." rows="2" onkeydown="onChatKey(event)"></textarea>
-            <button onclick="sendChat()">Send</button>
-          </div>
-        </div>
-      </div>
+    <div class="titlebar-center">Synergy - Multi-App AI Workspace Orchestrator</div>
+    <div class="titlebar-right"><span>v0.2.0</span></div>
+  </div>`;
+}
+
+function renderStatusbar() {
+  const leaderName = APP.selectedAdapter ? APP.selectedAdapter.id : 'none';
+  const busyCount = APP.workers.filter(w => w.status === 'working').length;
+  const totalWorkers = APP.workers.length || APP.workerCount;
+  const doneCount = APP.execTasks.filter(t => t.status === 'done').length;
+  const totalTasks = APP.execTasks.length || 0;
+  const pct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
+  return `<div class="statusbar">
+    <span>Synergy v0.2.0</span><span class="sep"></span>
+    <span>Leader: ${leaderName}</span><span class="sep"></span>
+    <span>Workers: ${busyCount}/${totalWorkers}</span><span class="sep"></span>
+    <span>Tasks: ${doneCount}/${totalTasks} (${pct}%)<span class="mini-bar"><span class="mini-bar-fill" style="width:${pct}%"></span></span></span>
+  </div>`;
+}
+
+function renderScreens() {
+  return `
+    <div class="screen welcome-screen ${APP.screen === 'welcome' ? 'active' : ''}" id="screen-welcome">
+      ${renderWelcome()}
     </div>
-    <div class="statusbar">
-      <span>Synergy v0.2</span><span class="sep"></span>
-      <span id="sbTasks">Tasks: 0</span><span class="sep"></span>
-      <span id="sbSession">Initializing...</span>
+    <div class="screen leader-select-screen ${APP.screen === 'leader_select' ? 'active' : ''}" id="screen-leader-select">
+      ${renderLeaderSelect()}
+    </div>
+    <div class="screen planning-screen ${APP.screen === 'planning' ? 'active' : ''}" id="screen-planning">
+      ${renderPlanning()}
+    </div>
+    <div class="screen plan-review-screen ${APP.screen === 'plan_review' ? 'active' : ''}" id="screen-plan-review">
+      ${renderPlanReview()}
+    </div>
+    <div class="screen executing-screen ${APP.screen === 'executing' ? 'active' : ''}" id="screen-executing">
+      ${renderExecuting()}
+    </div>
+    <div class="screen complete-screen ${APP.screen === 'complete' ? 'active' : ''}" id="screen-complete">
+      ${renderComplete()}
     </div>
   `;
-  buildWorkers();
-  autoInit();
 }
 
-// ─── Workers ─────────────────────────────────────────────────────────
-function buildWorkers() {
-  const grid = document.getElementById('workersGrid');
-  grid.innerHTML = '';
-  for (let i = 0; i < STATE.workerCount; i++) {
-    const card = document.createElement('div');
-    card.className = 'worker-card';
-    card.innerHTML = `
-      <div class="worker-top">
-        <div class="worker-label"><span class="dot dot-idle" id="wdot-${i}"></span>Worker #${i+1}</div>
-        <div class="worker-ip" id="wip-${i}">IP: proxy-${i+1}</div>
+// --- Screen Renderers ---
+
+function renderWelcome() {
+  return `
+    <div class="welcome-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+    </div>
+    <div class="welcome-title">Synergy</div>
+    <div class="welcome-subtitle">Multi-App AI Workspace Orchestrator</div>
+    <div class="welcome-version">v0.2.0</div>
+    <div class="welcome-actions">
+      <button class="btn-primary" id="btn-open-folder">Open Folder</button>
+      <div class="folder-input-row">
+        <input type="text" class="folder-input" id="folder-path-input" placeholder="/path/to/project..." value="${APP.projectDir || ''}"/>
+        <button class="folder-input-btn" id="btn-folder-go">Go</button>
       </div>
-      <div class="worker-term" id="wterm-${i}"></div>
-      <div class="worker-input"><input placeholder="$ direct command to this worker..." onkeydown="onWorkerKey(event,${i})"/></div>
+    </div>
+  `;
+}
+
+function renderLeaderSelect() {
+  const cards = APP.adapters.map(a => `
+    <div class="adapter-card${APP.selectedAdapter && APP.selectedAdapter.id === a.id ? ' selected' : ''}" data-adapter-id="${a.id}">
+      <div class="adapter-card-header">
+        <span class="adapter-card-id">${a.id}</span>
+        <span class="adapter-type-badge badge-${a.type}">${a.type}</span>
+      </div>
+      <div class="adapter-card-desc">${a.desc}</div>
+    </div>
+  `).join('');
+
+  return `
+    <div class="screen-title">Select Leader AI</div>
+    <div class="screen-subtitle">Choose which AI application or CLI will act as the Leader for this session. The Leader orchestrates Workers and reviews their output.</div>
+    <div class="adapters-grid">${cards}</div>
+  `;
+}
+
+function renderPlanning() {
+  const msgs = APP.messages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
+  const showReview = APP.planText ? '' : 'hidden';
+  return `
+    <div class="chat-area" id="chat-area">${msgs}</div>
+    ${APP.planText ? '<button class="btn-review-plan" id="btn-review-plan">Review Plan</button>' : ''}
+    <div class="chat-input-area">
+      <textarea id="chat-input" placeholder="Describe what you want to build..." rows="2"></textarea>
+      <button class="chat-send-btn" id="btn-chat-send">Send</button>
+    </div>
+  `;
+}
+
+function renderPlanReview() {
+  const tasks = APP.planTasks.map((t, i) => `
+    <li class="plan-task-item">
+      <span class="task-num">${i + 1}.</span>
+      <span class="task-text">${escapeHtml(t)}</span>
+    </li>
+  `).join('');
+
+  return `
+    <div class="screen-title">Review Plan</div>
+    <div class="screen-subtitle">The Leader has proposed the following tasks. Approve to begin execution or request changes.</div>
+    <ol class="plan-tasks-list">${tasks}</ol>
+    <div class="plan-actions">
+      <button class="btn-primary" id="btn-approve-plan">Approve &amp; Execute</button>
+      <button class="btn-secondary" id="btn-revise-plan">Request Changes</button>
+    </div>
+  `;
+}
+
+function renderExecuting() {
+  return `
+    <div class="progress-panel">
+      ${renderProgressPanel()}
+    </div>
+    <div class="workers-panel">
+      <div class="workers-panel-header">
+        <div class="workers-panel-title">Workers <span class="badge">${APP.workerCount} instances</span></div>
+      </div>
+      <div class="workers-grid" id="workers-grid">
+        ${renderWorkerCells()}
+      </div>
+    </div>
+    <div class="leader-panel">
+      ${renderLeaderPanel()}
+    </div>
+  `;
+}
+
+function renderProgressPanel() {
+  const doneCount = APP.execTasks.filter(t => t.status === 'done').length;
+  const total = APP.execTasks.length || 0;
+  const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
+
+  const taskItems = APP.execTasks.map(t => {
+    const cls = t.status === 'done' ? 'task-done' : t.status === 'running' ? 'task-running' : 'task-pending';
+    const icon = t.status === 'done' ? '&#10003;' : t.status === 'running' ? '&#9881;' : '&#9675;';
+    return `<li class="exec-task-item ${cls}"><span class="exec-task-icon">${icon}</span><span class="exec-task-text">${escapeHtml(t.title)}</span></li>`;
+  }).join('');
+
+  const workerMinis = APP.workers.map((w, i) => {
+    const dotCls = w.status === 'working' ? 'wk-working' : w.status === 'done' ? 'wk-active' : 'wk-idle';
+    const taskLbl = w.current_task ? w.current_task : 'idle';
+    return `<div class="worker-mini"><span class="worker-mini-dot ${dotCls}"></span><span class="worker-mini-label">W${i+1}</span><span class="worker-mini-task">${taskLbl}</span></div>`;
+  }).join('');
+
+  const logEntries = APP.logs.slice(-8).map(l => `<div class="log-entry">${l}</div>`).join('');
+
+  return `
+    <div class="progress-header">Progress</div>
+    <div class="progress-section">
+      <div class="progress-bar-container">
+        <div class="progress-bar-label"><span>Progress</span><span>${doneCount}/${total} (${pct}%)</span></div>
+        <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
+      </div>
+      <ul class="exec-task-list">${taskItems}</ul>
+      <div class="worker-status-section">
+        <div class="worker-status-title">Workers</div>
+        ${workerMinis}
+      </div>
+      <div class="log-section">
+        <div class="log-title">Activity</div>
+        ${logEntries}
+      </div>
+    </div>
+  `;
+}
+
+function renderWorkerCells() {
+  let cells = '';
+  for (let i = 0; i < APP.workerCount; i++) {
+    const w = APP.workers[i] || { status: 'idle', proxy_addr: '', current_task: '' };
+    const dotColor = w.status === 'working' ? 'blue' : w.status === 'done' ? 'green' : 'gray';
+    const badgeCls = w.status === 'working' ? 'w-badge-working' : w.status === 'done' ? 'w-badge-done' : 'w-badge-idle';
+    const badgeText = w.status || 'idle';
+    const proxy = w.proxy_addr || `proxy-${i+1}`;
+    const taskLbl = w.current_task || '';
+    cells += `
+      <div class="worker-cell">
+        <div class="worker-header-row">
+          <div class="worker-badge-name"><span class="worker-dot ${dotColor}"></span>Worker ${i+1}</div>
+          <div class="worker-meta-info">
+            <span class="proxy">${proxy}</span>
+            ${taskLbl ? '<span class="task-lbl">' + escapeHtml(taskLbl) + '</span>' : ''}
+          </div>
+          <span class="w-status-badge ${badgeCls}">${badgeText}</span>
+        </div>
+        <div class="worker-term-container" id="worker-term-${i}"></div>
+      </div>
     `;
-    grid.appendChild(card);
   }
-  requestAnimationFrame(() => {
-    for (let i = 0; i < STATE.workerCount; i++) initTerm(i);
+  return cells;
+}
+
+function renderLeaderPanel() {
+  const msgs = APP.leaderMessages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
+  return `
+    <div class="leader-header-bar">
+      <div class="leader-icon">L</div>
+      <div class="leader-info">
+        <div class="leader-name">${APP.selectedAdapter ? APP.selectedAdapter.id : 'Leader'}</div>
+        <div class="leader-model-lbl">${APP.selectedAdapter ? APP.selectedAdapter.desc : ''}</div>
+      </div>
+    </div>
+    <div class="leader-chat-area" id="leader-chat-area">${msgs}</div>
+    <div class="leader-chat-input">
+      <textarea id="leader-input" placeholder="Message Leader..." rows="1"></textarea>
+      <button id="btn-leader-send">Send</button>
+    </div>
+  `;
+}
+
+function renderComplete() {
+  const elapsed = APP.startTime ? formatElapsed(Date.now() - APP.startTime) : '0:00';
+  const doneCount = APP.execTasks.filter(t => t.status === 'done').length;
+  const failedCount = APP.execTasks.filter(t => t.status === 'error').length;
+  return `
+    <div class="complete-icon">&#10004;</div>
+    <div class="complete-title">Session Complete</div>
+    <div class="complete-stats">
+      <div class="stat-item"><div class="stat-value">${doneCount}</div><div class="stat-label">Tasks Completed</div></div>
+      <div class="stat-item"><div class="stat-value">${elapsed}</div><div class="stat-label">Time Elapsed</div></div>
+      <div class="stat-item"><div class="stat-value">${failedCount}</div><div class="stat-label">Failures</div></div>
+    </div>
+    <button class="btn-primary" id="btn-new-session" style="margin-top:24px">New Session</button>
+  `;
+}
+
+// --- Event Attachment ---
+function attachEvents() {
+  // Welcome
+  const btnOpen = document.getElementById('btn-open-folder');
+  if (btnOpen) btnOpen.addEventListener('click', handleOpenFolder);
+  const btnGo = document.getElementById('btn-folder-go');
+  if (btnGo) btnGo.addEventListener('click', handleFolderGo);
+  const folderInput = document.getElementById('folder-path-input');
+  if (folderInput) folderInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleFolderGo(); });
+
+  // Leader select
+  document.querySelectorAll('.adapter-card').forEach(card => {
+    card.addEventListener('click', () => handleAdapterSelect(card.dataset.adapterId));
   });
+
+  // Planning
+  const btnSend = document.getElementById('btn-chat-send');
+  if (btnSend) btnSend.addEventListener('click', handleChatSend);
+  const chatInput = document.getElementById('chat-input');
+  if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChatSend(); } });
+  const btnReview = document.getElementById('btn-review-plan');
+  if (btnReview) btnReview.addEventListener('click', () => goTo('plan_review'));
+
+  // Plan review
+  const btnApprove = document.getElementById('btn-approve-plan');
+  if (btnApprove) btnApprove.addEventListener('click', handleApprovePlan);
+  const btnRevise = document.getElementById('btn-revise-plan');
+  if (btnRevise) btnRevise.addEventListener('click', handleRevisePlan);
+
+  // Complete
+  const btnNew = document.getElementById('btn-new-session');
+  if (btnNew) btnNew.addEventListener('click', handleNewSession);
+
+  // Leader send in executing
+  const btnLeaderSend = document.getElementById('btn-leader-send');
+  if (btnLeaderSend) btnLeaderSend.addEventListener('click', handleLeaderSend);
+  const leaderInput = document.getElementById('leader-input');
+  if (leaderInput) leaderInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleLeaderSend(); } });
+
+  // Scroll chat to bottom
+  const chatArea = document.getElementById('chat-area');
+  if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
+  const leaderChatArea = document.getElementById('leader-chat-area');
+  if (leaderChatArea) leaderChatArea.scrollTop = leaderChatArea.scrollHeight;
 }
 
-function initTerm(id) {
-  const host = document.getElementById(`wterm-${id}`);
-  if (!host || STATE.terminals.has(id)) return;
-  const term = new Terminal({
-    fontFamily:'"JetBrains Mono",monospace', fontSize:11, lineHeight:1.2,
-    convertEol:true, scrollback:3000,
-    theme:{background:'#11111b',foreground:'#cdd6f4',cursor:'#89b4fa',selectionBackground:'rgba(137,180,250,.25)'}
-  });
-  const fit = new FitAddon.FitAddon();
-  term.loadAddon(fit); term.open(host);
-  try{fit.fit()}catch(e){}
-  STATE.terminals.set(id, {term, fit});
-  new ResizeObserver(()=>{try{fit.fit()}catch(e){}}).observe(host);
-  term.writeln('\x1b[2m# Worker '+(id+1)+' ready\x1b[0m');
-}
+// --- Event Handlers ---
 
-function onWorkerKey(ev, id) {
-  if (ev.key !== 'Enter') return;
-  const text = ev.target.value; if (!text) return;
-  ev.target.value = '';
-  invoke('send_worker_command', {worker_id: id, command: text}).catch(e => addMsg('system','Send error: '+e));
-}
-
-// ─── Leader Chat (FUNCTIONAL) ────────────────────────────────────────
-function onChatKey(ev) {
-  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendChat(); }
-}
-
-async function sendChat() {
-  const input = document.getElementById('chatInput');
-  const text = input.value.trim(); if (!text) return;
-  input.value = '';
-  addMsg('user', text);
-
-  if (!STATE.sessionId) {
-    addMsg('system', 'Waiting for session...');
-    await autoInit();
+async function handleOpenFolder() {
+  const result = await openFolderDialog();
+  if (result) {
+    APP.projectDir = result;
+    await loadAdaptersAndGo();
   }
+}
+
+function handleFolderGo() {
+  const input = document.getElementById('folder-path-input');
+  if (input && input.value.trim()) {
+    APP.projectDir = input.value.trim();
+    loadAdaptersAndGo();
+  }
+}
+
+async function loadAdaptersAndGo() {
+  try {
+    APP.adapters = await invoke('get_adapters');
+  } catch (e) {
+    APP.adapters = [];
+  }
+  goTo('leader_select');
+}
+
+async function handleAdapterSelect(adapterId) {
+  const adapter = APP.adapters.find(a => a.id === adapterId);
+  if (!adapter) return;
+  APP.selectedAdapter = adapter;
 
   try {
-    // Try to parse as numbered plan first
-    const lines = text.split('\n');
-    const numbered = lines.map(l => l.match(/^\s*(\d+)[\.\)]\s+(.+)$/)).filter(Boolean);
+    await invoke('choose_leader', { adapter_id: adapterId, project_dir: APP.projectDir });
+  } catch (e) {
+    // non-fatal in mock mode
+  }
 
-    if (numbered.length > 0) {
-      // Multiple tasks from numbered list
-      const ids = await invoke('add_plan', {session_id: STATE.sessionId, plan_text: text});
-      addMsg('assistant', `✓ Created ${ids.length} task(s) — distributing to Workers...`);
-    } else {
-      // Single task — send the whole message as one task
-      const taskId = await invoke('add_task', { args: {
-        session_id: STATE.sessionId,
-        title: text.slice(0, 60),
-        instruction: text,
-        depends_on: [],
-        files_target: []
-      }});
-      addMsg('assistant', `✓ Task scheduled (${taskId}) — sending to next idle Worker...`);
-    }
-  } catch(e) {
-    addMsg('system', 'Error: ' + e);
+  APP.messages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type}). Describe what you want to build.` }];
+  goTo('planning');
+}
+
+async function handleChatSend() {
+  const input = document.getElementById('chat-input');
+  if (!input || !input.value.trim()) return;
+  const text = input.value.trim();
+  input.value = '';
+  APP.messages.push({ role: 'user', content: text });
+  render();
+
+  try {
+    await invoke('send_to_leader', { message: text });
+  } catch (e) {
+    // handled by event listener
   }
 }
 
-function addMsg(role, content) {
-  STATE.messages.push({role, content});
-  const area = document.getElementById('chatArea');
-  const div = document.createElement('div');
-  div.className = 'chat-msg ' + role;
-  div.textContent = content;
-  area.appendChild(div);
+async function handleApprovePlan() {
+  APP.execTasks = APP.planTasks.map((t, i) => ({ id: 'task_' + i, title: t, status: 'pending', worker_id: null }));
+  APP.startTime = Date.now();
+  APP.leaderMessages = [{ role: 'system', content: 'Plan approved. Distributing tasks to Workers...' }];
+  APP.logs = [];
+
+  try {
+    await invoke('approve_plan', { session_id: APP.sessionId, plan_text: APP.planText });
+  } catch (e) {
+    // proceed anyway for mock
+  }
+
+  goTo('executing');
+}
+
+function handleRevisePlan() {
+  APP.messages.push({ role: 'user', content: 'I would like some changes to the plan. Please revise.' });
+  APP.planText = '';
+  APP.planTasks = [];
+  goTo('planning');
+}
+
+function handleNewSession() {
+  // Reset state
+  APP.screen = 'welcome';
+  APP.projectDir = null;
+  APP.adapters = [];
+  APP.selectedAdapter = null;
+  APP.sessionId = null;
+  APP.messages = [];
+  APP.planText = '';
+  APP.planTasks = [];
+  APP.execTasks = [];
+  APP.workers = [];
+  APP.logs = [];
+  APP.leaderMessages = [];
+  APP.startTime = null;
+  disposeTerminals();
+  if (APP.pollInterval) { clearInterval(APP.pollInterval); APP.pollInterval = null; }
+  render();
+}
+
+async function handleLeaderSend() {
+  const input = document.getElementById('leader-input');
+  if (!input || !input.value.trim()) return;
+  const text = input.value.trim();
+  input.value = '';
+  APP.leaderMessages.push({ role: 'user', content: text });
+  try {
+    await invoke('send_to_leader', { message: text });
+  } catch (e) {}
+  updateLeaderChat();
+}
+
+// --- Executing screen init ---
+function initExecutingScreen() {
+  requestAnimationFrame(() => {
+    for (let i = 0; i < APP.workerCount; i++) {
+      initTerminal(i);
+    }
+  });
+  subscribeEvents();
+  startPolling();
+}
+
+function initTerminal(id) {
+  const host = document.getElementById('worker-term-' + id);
+  if (!host || APP.terminals.has(id)) return;
+  const term = new Terminal({
+    fontFamily: '"JetBrains Mono", monospace',
+    fontSize: 11,
+    lineHeight: 1.2,
+    convertEol: true,
+    scrollback: 3000,
+    theme: { background: '#11111b', foreground: '#cdd6f4', cursor: '#89b4fa', selectionBackground: 'rgba(137,180,250,.25)' }
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(host);
+  try { fit.fit(); } catch (e) {}
+  APP.terminals.set(id, { term, fit });
+  new ResizeObserver(() => { try { fit.fit(); } catch (e) {} }).observe(host);
+  term.writeln('\x1b[2m# Worker ' + (id + 1) + ' ready\x1b[0m');
+}
+
+function disposeTerminals() {
+  APP.terminals.forEach(({ term }) => { try { term.dispose(); } catch (e) {} });
+  APP.terminals.clear();
+}
+
+async function subscribeEvents() {
+  await listen('worker-output', ev => {
+    const p = ev.payload || ev;
+    const entry = APP.terminals.get(p.worker_id);
+    if (entry) entry.term.write(p.chunk);
+  });
+
+  await listen('leader-output', ev => {
+    const p = ev.payload || ev;
+    if (APP.screen === 'planning') {
+      // Accumulate assistant response
+      const lastMsg = APP.messages[APP.messages.length - 1];
+      if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
+        lastMsg.content += p.chunk;
+      } else {
+        APP.messages.push({ role: 'assistant', content: p.chunk, streaming: true });
+      }
+      detectPlan();
+      render();
+    } else if (APP.screen === 'executing') {
+      const lastMsg = APP.leaderMessages[APP.leaderMessages.length - 1];
+      if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
+        lastMsg.content += p.chunk;
+      } else {
+        APP.leaderMessages.push({ role: 'assistant', content: p.chunk, streaming: true });
+      }
+      updateLeaderChat();
+    }
+  });
+}
+
+function detectPlan() {
+  // Look for numbered list in the last assistant message
+  const assistantMsgs = APP.messages.filter(m => m.role === 'assistant');
+  if (assistantMsgs.length === 0) return;
+  const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
+  const lines = lastAssistant.content.split('\n');
+  const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
+  if (numbered.length >= 2) {
+    APP.planText = lastAssistant.content;
+    APP.planTasks = numbered.map(m => m[2]);
+  }
+}
+
+function startPolling() {
+  if (APP.pollInterval) clearInterval(APP.pollInterval);
+  APP.pollInterval = setInterval(async () => {
+    if (APP.screen !== 'executing') return;
+    try {
+      const state = await invoke('get_state', { session_id: APP.sessionId });
+      if (state.tasks) APP.execTasks = state.tasks;
+      if (state.workers) APP.workers = state.workers;
+      updateProgressPanel();
+      updateWorkerHeaders();
+      checkComplete();
+    } catch (e) {}
+  }, 1000);
+}
+
+function checkComplete() {
+  if (APP.execTasks.length > 0 && APP.execTasks.every(t => t.status === 'done' || t.status === 'error')) {
+    if (APP.pollInterval) { clearInterval(APP.pollInterval); APP.pollInterval = null; }
+    setTimeout(() => goTo('complete'), 1500);
+  }
+}
+
+// --- Partial DOM updates for executing screen ---
+function updateProgressPanel() {
+  const panel = document.querySelector('.progress-panel');
+  if (!panel) return;
+  panel.innerHTML = renderProgressPanel();
+}
+
+function updateWorkerHeaders() {
+  // Update status dots/badges without rebuilding terminals
+  for (let i = 0; i < APP.workerCount; i++) {
+    const w = APP.workers[i];
+    if (!w) continue;
+    const dot = document.querySelector(`#workers-grid .worker-cell:nth-child(${i+1}) .worker-dot`);
+    if (dot) {
+      dot.className = 'worker-dot ' + (w.status === 'working' ? 'blue' : w.status === 'done' ? 'green' : 'gray');
+    }
+  }
+}
+
+function updateLeaderChat() {
+  const area = document.getElementById('leader-chat-area');
+  if (!area) return;
+  area.innerHTML = APP.leaderMessages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
   area.scrollTop = area.scrollHeight;
 }
 
-// ─── Session Init ────────────────────────────────────────────────────
-async function autoInit() {
-  if (STATE.sessionId) return;
-  try {
-    const sid = await invoke('init_session', { args: {
-      db_path: 'synergy.db', project_name: 'Synergy Workspace',
-      bin_path: 'cmd.exe', worker_count: STATE.workerCount,
-      adapter_id: 'cli-generic', project_dir: null
-    }});
-    STATE.sessionId = sid;
-    document.getElementById('sbSession').textContent = 'Session: ' + sid;
-    addMsg('system', 'Session started. ' + STATE.workerCount + ' Workers ready.');
-    subscribeOutput();
-    setInterval(pollState, 1000);
-  } catch(e) {
-    console.error('init failed', e);
-    addMsg('system', 'Init failed: ' + e);
+// --- Utility ---
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function formatElapsed(ms) {
+  const secs = Math.floor(ms / 1000);
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+// --- Mock Mode (browser preview without Tauri) ---
+const mockListeners = {};
+const mockState = { session: null, tasks: [], workers: [], tickTimer: null };
+
+async function mockInvoke(cmd, args = {}) {
+  await new Promise(r => setTimeout(r, 50));
+
+  if (cmd === 'get_adapters') {
+    return [
+      { id: 'opencode', type: 'cli', desc: 'OpenCode CLI - free AI coding assistant' },
+      { id: 'aider', type: 'cli', desc: 'Aider - AI pair programming in terminal' },
+      { id: 'claude-cli', type: 'cli', desc: 'Claude CLI - official Anthropic CLI' },
+      { id: 'codex-cli', type: 'cli', desc: 'Codex CLI - OpenAI terminal tool' },
+      { id: 'cli-generic', type: 'cli', desc: 'Generic shell (cmd, powershell, bash)' },
+      { id: 'cursor', type: 'gui', desc: 'Cursor - AI-first code editor' },
+      { id: 'kiro', type: 'gui', desc: 'Kiro - AI IDE by Amazon' },
+      { id: 'vscode', type: 'gui', desc: 'VS Code + Copilot' },
+      { id: 'windsurf', type: 'gui', desc: 'Windsurf - AI code editor' },
+    ];
+  }
+
+  if (cmd === 'choose_leader') {
+    APP.sessionId = 'session_mock_' + Date.now();
+    return { ok: true };
+  }
+
+  if (cmd === 'send_to_leader') {
+    // Simulate leader response with a plan after 1.5s
+    setTimeout(() => {
+      const planResponse = `I'll break this down into tasks:\n\n1. Set up project structure and configuration\n2. Implement core data models\n3. Create API endpoints\n4. Build frontend components\n5. Add authentication and authorization\n6. Write unit and integration tests\n7. Final review and documentation`;
+      emitMockEvent('leader-output', { chunk: planResponse });
+    }, 1500);
+    return { ok: true };
+  }
+
+  if (cmd === 'approve_plan') {
+    mockState.tasks = APP.planTasks.map((t, i) => ({ id: 'task_' + i, title: t, status: 'pending', worker_id: null }));
+    mockState.workers = Array.from({ length: APP.workerCount }, (_, i) => ({
+      id: i, status: 'idle', proxy_addr: `socks5://proxy-${i+1}:1080`, current_task: ''
+    }));
+    // Start mock execution
+    if (mockState.tickTimer) clearInterval(mockState.tickTimer);
+    mockState.tickTimer = setInterval(mockExecutionTick, 2000);
+    return { ok: true };
+  }
+
+  if (cmd === 'get_state') {
+    return { tasks: mockState.tasks, workers: mockState.workers };
+  }
+
+  return null;
+}
+
+function emitMockEvent(eventName, payload) {
+  const listeners = mockListeners[eventName];
+  if (listeners) {
+    listeners.forEach(cb => cb({ payload }));
   }
 }
 
-async function subscribeOutput() {
-  await listen('worker-output', ev => {
-    const p = ev.payload || ev;
-    const entry = STATE.terminals.get(p.worker_id);
-    if (entry) entry.term.write(p.chunk);
-  });
-}
+function mockExecutionTick() {
+  // Find a pending task and assign to idle worker
+  const pendingTask = mockState.tasks.find(t => t.status === 'pending');
+  const idleWorker = mockState.workers.find(w => w.status === 'idle');
 
-async function pollState() {
-  if (!STATE.sessionId) return;
-  try {
-    const s = await invoke('get_state', {session_id: STATE.sessionId});
-    STATE.workers = s.workers || [];
-    const busy = STATE.workers.filter(w=>w.status==='working').length;
-    document.getElementById('sbWorkers').textContent = `${busy}/${STATE.workers.length}`;
-    document.getElementById('sbTasks').textContent = `Tasks: ${(s.tasks||[]).length}`;
-    STATE.workers.forEach(w => {
-      const dot = document.getElementById('wdot-'+w.id);
-      if (dot) dot.className = 'dot dot-'+w.status;
-      const ip = document.getElementById('wip-'+w.id);
-      if (ip) ip.textContent = w.proxy_addr || 'direct';
+  if (pendingTask && idleWorker) {
+    pendingTask.status = 'running';
+    pendingTask.worker_id = idleWorker.id;
+    idleWorker.status = 'working';
+    idleWorker.current_task = pendingTask.title.substring(0, 30);
+
+    APP.logs.push(`<span style="color:var(--teal)">W${idleWorker.id+1}</span> started: ${pendingTask.title.substring(0, 40)}`);
+
+    // Emit terminal output
+    emitMockEvent('worker-output', {
+      worker_id: idleWorker.id,
+      chunk: `\r\n\x1b[36m> ${pendingTask.title}\x1b[0m\r\n\x1b[2mProcessing...\x1b[0m\r\n`
     });
-  } catch(e) {}
-}
 
-// ─── Tauri Bridge ────────────────────────────────────────────────────
-const tauri = (()=>{
-  const t=window.__TAURI__;
-  if(t&&t.core&&typeof t.core.invoke==='function') return{invoke:t.core.invoke.bind(t.core),listen:t.event?t.event.listen.bind(t.event):null};
-  return null;
-})();
-const mockListeners={};
-async function invoke(cmd,args={}){if(tauri)return tauri.invoke(cmd,args);return mockInvoke(cmd,args)}
-async function listen(ev,cb){if(tauri&&tauri.listen)return tauri.listen(ev,cb);mockListeners[ev]=cb;return()=>{}}
+    // Complete after delay
+    setTimeout(() => {
+      pendingTask.status = 'done';
+      idleWorker.status = 'idle';
+      idleWorker.current_task = '';
+      APP.logs.push(`<span style="color:var(--green)">W${idleWorker.id+1}</span> completed: ${pendingTask.title.substring(0, 40)}`);
+      emitMockEvent('worker-output', {
+        worker_id: idleWorker.id,
+        chunk: '\x1b[32m  Done\x1b[0m\r\n'
+      });
+      // Leader batch report
+      APP.leaderMessages.push({ role: 'assistant', content: `Worker ${idleWorker.id+1} completed: ${pendingTask.title}. Output reviewed and approved.` });
+      if (APP.screen === 'executing') updateLeaderChat();
+    }, 3000 + Math.random() * 2000);
+  }
 
-// ─── Mock (browser preview only) ────────────────────────────────────
-const mock={session:null,tasks:[],workers:[]};
-async function mockInvoke(cmd,args){
-  await new Promise(r=>setTimeout(r,30));
-  if(cmd==='init_session'){
-    const a=args.args||{};
-    mock.session='s_mock_'+Date.now();
-    mock.workers=Array.from({length:a.worker_count||6},(_,i)=>({id:i,proxy_addr:`socks5://proxy-${i+1}:1080`,status:'idle',current_task_id:null}));
-    setInterval(mockTick,1500);
-    return mock.session;
-  }
-  if(cmd==='get_state')return{tasks:mock.tasks,workers:mock.workers,logs:[]};
-  if(cmd==='add_plan'){
-    const text=args.plan_text||'';
-    const lines=text.split('\n').map(l=>l.match(/^\s*(\d+)[\.\)]\s+(.+)$/)).filter(Boolean);
-    const ids=lines.map((m,i)=>{const id='t_'+Date.now()+'_'+i;mock.tasks.push({id,title:m[2],instruction:m[2],status:'pending',worker_id:null});return id});
-    return ids;
-  }
-  if(cmd==='add_task'){
-    const a=args.args||args;
-    const id='t_'+Date.now();
-    mock.tasks.push({id,title:a.title||'task',instruction:a.instruction||'',status:'pending',worker_id:null});
-    return id;
-  }
-  if(cmd==='send_worker_command'){
-    const cb=mockListeners['worker-output'];
-    if(cb)cb({payload:{worker_id:args.worker_id,task_id:null,chunk:`\r\n$ ${args.command}\r\n(executed)\r\n`}});
-    return null;
-  }
-  return null;
-}
-function mockTick(){
-  for(const t of mock.tasks){
-    if(t.status!=='pending')continue;
-    const w=mock.workers.find(x=>x.status==='idle');if(!w)break;
-    t.status='running';t.worker_id=w.id;w.status='working';w.current_task_id=t.id;
-    const cb=mockListeners['worker-output'];
-    if(cb)cb({payload:{worker_id:w.id,task_id:t.id,chunk:`\r\n\x1b[36m> ${t.instruction}\x1b[0m\r\n`}});
-    setTimeout(()=>{
-      t.status='done';w.status='idle';w.current_task_id=null;
-      if(cb)cb({payload:{worker_id:w.id,task_id:t.id,chunk:'\x1b[32m✓ Done\x1b[0m\r\n'}});
-    },2000);
-    break;
+  // Check if all done
+  if (mockState.tasks.length > 0 && mockState.tasks.every(t => t.status === 'done')) {
+    clearInterval(mockState.tickTimer);
+    mockState.tickTimer = null;
   }
 }
 
-// ─── Boot ────────────────────────────────────────────────────────────
+// --- Boot ---
 render();
+
 </script>
 </body>
 </html>
