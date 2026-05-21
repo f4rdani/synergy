@@ -109,6 +109,18 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .conn-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .conn-dot.connected{background:var(--green);box-shadow:0 0 6px var(--green)}
 .conn-dot.disconnected{background:var(--red)}
+.conn-dot.connecting{background:var(--yellow);box-shadow:0 0 6px var(--yellow);animation:pulse 1s ease infinite}
+.conn-log{margin-top:8px;max-height:80px;overflow-y:auto;border-top:1px solid var(--border);padding-top:6px}
+.conn-log-entry{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px;font-family:'JetBrains Mono',monospace}
+.conn-log-time{color:var(--text-dim);min-width:60px}
+.conn-log-status{font-weight:600;min-width:70px}
+.conn-connecting{color:var(--yellow)}
+.conn-connected{color:var(--green)}
+.conn-failed{color:var(--red)}
+.conn-log-msg{color:var(--text-sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conn-type-badge{font-size:9px;background:var(--surface0);color:var(--text-dim);padding:2px 6px;border-radius:4px;margin-left:8px}
+.btn-fetch-models{margin-left:auto;background:var(--surface0);border:1px solid var(--border);border-radius:5px;padding:3px 10px;color:var(--mauve);font-size:10px;cursor:pointer}
+.btn-fetch-models:hover{border-color:var(--mauve)}
 .planning-hint{font-size:11px;color:var(--text-dim);margin-top:4px}
 .chat-area{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px}
 .chat-msg{max-width:80%;padding:12px 16px;border-radius:12px;font-size:13px;line-height:1.6;word-break:break-word;white-space:pre-wrap}
@@ -322,6 +334,12 @@ const APP = {
   workerModel: '',
   availableModels: [],
   recentProjects: [],
+  connectionStatus: 'disconnected',
+  connectionMessage: '',
+  connectionType: '',
+  connectionLog: [],
+  leaderModels: [],
+  selectedLeaderModel: null,
 };
 
 // --- Tauri Bridge ---
@@ -568,7 +586,27 @@ function renderLeaderSelect() {
 
 function renderPlanning() {
   const leaderName = APP.selectedAdapter ? APP.selectedAdapter.id : 'AI';
-  const connStatus = `<div class="planning-header"><div class="planning-conn-status"><span class="conn-dot connected"></span>Connected to <strong>${leaderName}</strong> (Leader AI)</div><div class="planning-hint">Describe what you want to build. The Leader will create a plan and assign tasks to Workers.</div></div>`;
+  const statusDot = APP.connectionStatus === 'connected' ? 'connected' : APP.connectionStatus === 'connecting' ? 'connecting' : 'disconnected';
+  const statusClass = 'conn-dot ' + statusDot;
+
+  const connLog = (APP.connectionLog || []).map(l =>
+    `<div class="conn-log-entry"><span class="conn-log-time">${l.ts}</span><span class="conn-log-status conn-${l.status}">${l.status}</span><span class="conn-log-msg">${escapeHtml(l.message)}</span></div>`
+  ).join('');
+
+  const modelBtn = APP.connectionStatus === 'connected'
+    ? `<button class="btn-fetch-models" id="btn-fetch-leader-models">Models (${APP.selectedLeaderModel || 'default'})</button>`
+    : '';
+
+  const connStatus = `<div class="planning-header">
+    <div class="planning-conn-status">
+      <span class="${statusClass}"></span>
+      ${APP.connectionStatus === 'connected' ? 'Connected to' : APP.connectionStatus === 'connecting' ? 'Connecting to' : 'Disconnected from'} <strong>${leaderName}</strong>
+      ${APP.connectionType ? `<span class="conn-type-badge">${escapeHtml(APP.connectionType)}</span>` : ''}
+      ${modelBtn}
+    </div>
+    <div class="planning-hint">Describe what you want to build. The Leader will create a plan and assign tasks to Workers.</div>
+    ${connLog ? `<div class="conn-log">${connLog}</div>` : ''}
+  </div>`;
 
   const msgs = APP.messages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
   return `
@@ -832,6 +870,19 @@ function attachEvents() {
     el.addEventListener('click', () => selectModel(el.dataset.modelId));
   });
 
+  // Leader model fetch button
+  document.getElementById('btn-fetch-leader-models')?.addEventListener('click', async () => {
+    try {
+      APP.leaderModels = await invoke('fetch_leader_models');
+      APP.showModelSelector = true;
+      APP.modelLoading = false;
+      APP.availableModels = APP.leaderModels;
+      render();
+    } catch(e) {
+      alert('Failed to fetch models: ' + e);
+    }
+  });
+
   // Scroll chat to bottom
   const chatArea = document.getElementById('chat-area');
   if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
@@ -877,16 +928,31 @@ async function handleAdapterSelect(adapterId) {
   const adapter = APP.adapters.find(a => a.id === adapterId);
   if (!adapter) return;
   APP.selectedAdapter = adapter;
+  APP.connectionStatus = 'connecting';
+  APP.connectionMessage = 'Launching ' + adapterId + '...';
+  APP.connectionLog = [{ ts: new Date().toLocaleTimeString(), status: 'connecting', message: 'Initiating connection to ' + adapterId }];
 
   try {
     const result = await invoke('choose_leader', { adapter_id: adapterId, project_dir: APP.projectDir });
     // Backend returns session_id string directly
     if (typeof result === 'string') APP.sessionId = result;
+    // If no event came from backend (mock mode), set connected
+    if (APP.connectionStatus === 'connecting') {
+      APP.connectionStatus = 'connected';
+      APP.connectionMessage = 'Connected to ' + adapterId;
+      APP.connectionType = (adapter.type || adapter.adapter_type) === 'cli' ? 'CLI process via PTY (pseudo-terminal)' : (adapter.type || adapter.adapter_type) === 'gui' ? 'GUI window embedded via Win32 SetParent + UI Automation' : 'HTTP API';
+      APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), status: 'connected', message: 'Successfully connected to ' + adapterId });
+    }
   } catch (e) {
-    // non-fatal in mock mode
+    // Set failed status if no event came from backend
+    if (APP.connectionStatus !== 'failed') {
+      APP.connectionStatus = 'failed';
+      APP.connectionMessage = 'Failed to connect: ' + e;
+      APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), status: 'failed', message: 'Connection failed: ' + e });
+    }
   }
 
-  APP.messages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type}). Describe what you want to build.` }];
+  APP.messages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type || adapter.adapter_type}). Describe what you want to build.` }];
   goTo('planning');
 }
 
@@ -1161,6 +1227,19 @@ function disposeTerminals() {
 }
 
 async function subscribeEvents() {
+  await listen('leader-connection-status', ev => {
+    const data = ev.payload || ev;
+    APP.connectionStatus = data.status; // 'connecting', 'connected', 'failed'
+    APP.connectionMessage = data.message || '';
+    APP.connectionType = data.connection_type || '';
+
+    // Add to connection log
+    if (!APP.connectionLog) APP.connectionLog = [];
+    APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), ...data });
+
+    render();
+  });
+
   await listen('worker-output', ev => {
     const p = ev.payload || ev;
     const entry = APP.terminals.get(p.worker_id);
@@ -1471,6 +1550,13 @@ async function mockInvoke(cmd, args = {}) {
 
   if (cmd === 'choose_leader') {
     APP.sessionId = 'session_mock_' + Date.now();
+    // Simulate connection status events
+    setTimeout(() => emitMockEvent('leader-connection-status', { status: 'connecting', message: 'Launching ' + (args.adapter_id || 'unknown') + '...' }), 100);
+    setTimeout(() => {
+      const aType = APP.selectedAdapter ? (APP.selectedAdapter.type || APP.selectedAdapter.adapter_type) : 'cli';
+      const connType = aType === 'cli' ? 'CLI process via PTY (pseudo-terminal)' : aType === 'gui' ? 'GUI window embedded via Win32 SetParent + UI Automation' : 'HTTP API';
+      emitMockEvent('leader-connection-status', { status: 'connected', message: 'Successfully connected to ' + (args.adapter_id || 'unknown'), connection_type: connType, adapter_id: args.adapter_id });
+    }, 500);
     return APP.sessionId;
   }
 
@@ -1510,6 +1596,32 @@ async function mockInvoke(cmd, args = {}) {
   if (cmd === 'set_worker_model_cmd') {
     APP.workerModel = args.model;
     return;
+  }
+
+  if (cmd === 'fetch_leader_models') {
+    // Return leader-specific models in mock mode
+    const leaderId = APP.selectedAdapter ? APP.selectedAdapter.id : '';
+    const modelSets = {
+      'opencode': [
+        {id:'anthropic/claude-sonnet-4-20250514',name:'Claude Sonnet 4',provider:'Anthropic',free:true},
+        {id:'openai/gpt-4o-mini',name:'GPT-4o Mini',provider:'OpenAI',free:true},
+        {id:'google/gemini-2.5-flash',name:'Gemini 2.5 Flash',provider:'Google',free:true},
+      ],
+      'cursor': [
+        {id:'claude-sonnet-4',name:'Claude Sonnet 4',provider:'Cursor',free:false},
+        {id:'gpt-4o',name:'GPT-4o',provider:'Cursor',free:false},
+        {id:'gpt-4o-mini',name:'GPT-4o Mini',provider:'Cursor',free:true},
+        {id:'cursor-small',name:'Cursor Small',provider:'Cursor',free:true},
+      ],
+      'codex-cli': [
+        {id:'codex-mini',name:'Codex Mini',provider:'OpenAI',free:true},
+        {id:'o4-mini',name:'o4-mini',provider:'OpenAI',free:true},
+      ],
+      'antigravity': [
+        {id:'antigravity/default',name:'Antigravity Default',provider:'Antigravity',free:true},
+      ],
+    };
+    return modelSets[leaderId] || [{id:'default',name:'Default Model',provider:'Auto',free:true}];
   }
 
   if (cmd === 'get_available_models') {

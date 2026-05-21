@@ -67,3 +67,10 @@ type         = "gui"
 bin          = "Windsurf.exe"
 window_title = "Windsurf"
 desc         = "Windsurf — AI code editor"
+
+[[adapter]]
+id           = "codex-ide"
+type         = "gui"
+bin          = "codex"
+window_title = "Codex"
+desc         = "Codex — OpenAI AI coding IDE"
