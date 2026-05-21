@@ -1336,25 +1336,44 @@ async function subscribeEvents() {
 
   await listen('leader-output', ev => {
     const p = ev.payload || ev;
-    // Remove typing indicator if present
+    const raw = p.chunk || '';
+    if (!raw) return;
+
+    // Strip ANSI escape codes for display
+    const text = raw.replace(/\x1b\[[0-9;]*[mGKHFABCDJnsu]/g, '')
+                    .replace(/\x1b\][^\x07]*\x07/g, '')
+                    .replace(/\x1b[()][AB012]/g, '')
+                    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+
+    if (!text.trim()) return;
+
+    // Remove typing indicator
     APP.messages = APP.messages.filter(m => !m.typing);
 
-    if (APP.screen === 'planning') {
-      // Accumulate assistant response
+    if (APP.screen === 'planning' || APP.screen === 'leader_select') {
+      // Accumulate into last assistant message or create new one
       const lastMsg = APP.messages[APP.messages.length - 1];
       if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
-        lastMsg.content += p.chunk;
+        lastMsg.content += text;
       } else {
-        APP.messages.push({ role: 'assistant', content: p.chunk, streaming: true });
+        APP.messages.push({ role: 'assistant', content: text, streaming: true });
       }
       detectPlan();
-      render();
+      // Update chat area without full re-render for performance
+      const chatArea = document.getElementById('chat-area');
+      if (chatArea) {
+        const msgs = APP.messages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
+        chatArea.innerHTML = msgs;
+        chatArea.scrollTop = chatArea.scrollHeight;
+      } else {
+        render();
+      }
     } else if (APP.screen === 'executing') {
       const lastMsg = APP.leaderMessages[APP.leaderMessages.length - 1];
       if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
-        lastMsg.content += p.chunk;
+        lastMsg.content += text;
       } else {
-        APP.leaderMessages.push({ role: 'assistant', content: p.chunk, streaming: true });
+        APP.leaderMessages.push({ role: 'assistant', content: text, streaming: true });
       }
       updateLeaderChat();
     }

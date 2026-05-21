@@ -523,21 +523,63 @@ fn resolve_adapter_bin(adapter_id: &str) -> String {
 }
 
 /// Return the list of all supported adapters from the embedded adapters.toml.
-/// The frontend uses this to display Leader selection cards.
+/// Only returns adapters whose binary is actually available on the system.
 #[tauri::command]
 async fn get_adapters() -> Result<Vec<AdapterInfo>, String> {
     let parsed: AdaptersFile =
         toml::from_str(ADAPTERS_TOML).map_err(|e| format!("Failed to parse adapters.toml: {e}"))?;
-    Ok(parsed
+
+    let adapters: Vec<AdapterInfo> = parsed
         .adapter
         .into_iter()
+        .filter(|a| {
+            // Always show API adapters (no binary needed)
+            if a.adapter_type == "api" {
+                return true;
+            }
+            // For CLI/GUI adapters, check if binary exists in PATH or as absolute path
+            which_binary(&a.bin)
+        })
         .map(|a| AdapterInfo {
             id: a.id,
             adapter_type: a.adapter_type,
             bin: a.bin,
             desc: a.desc,
         })
-        .collect())
+        .collect();
+
+    Ok(adapters)
+}
+
+/// Check if a binary is available (in PATH or as absolute path).
+fn which_binary(bin: &str) -> bool {
+    // Try as-is first (absolute path or in current dir)
+    if std::path::Path::new(bin).exists() {
+        return true;
+    }
+    // Search in PATH
+    if let Ok(path_var) = std::env::var("PATH") {
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        for dir in path_var.split(sep) {
+            let full = std::path::Path::new(dir).join(bin);
+            if full.exists() {
+                return true;
+            }
+            // On Windows, also try with .exe extension
+            #[cfg(windows)]
+            {
+                let with_exe = std::path::Path::new(dir).join(format!("{}.exe", bin));
+                if with_exe.exists() {
+                    return true;
+                }
+                let with_cmd = std::path::Path::new(dir).join(format!("{}.cmd", bin));
+                if with_cmd.exists() {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 /// Validate and store the selected project folder, advancing the session
@@ -654,8 +696,19 @@ async fn choose_leader<R: Runtime>(
     // Store in session flow
     {
         let mut flow = state.session_flow.lock().await;
-        flow.set_leader(adapter_id, adapter.clone(), handle, session_id.clone())?;
+        flow.set_leader(adapter_id.clone(), adapter.clone(), handle, session_id.clone())?;
     }
+
+    // Wait for the CLI tool to fully start up before sending the system prompt.
+    // OpenCode and similar TUI tools need a moment to initialize.
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+
+    // Start the leader output pump BEFORE sending the system prompt so we
+    // capture the startup banner and any initial output.
+    spawn_leader_output_pump_tauri(app.clone(), state.session_flow.clone());
+
+    // Give the pump a moment to start
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // After leader is connected, send the system prompt to teach it how to plan
     {
@@ -671,9 +724,6 @@ async fn choose_leader<R: Runtime>(
     let shared_db = Arc::new(Mutex::new(db));
     *state.db.lock().await = Some(shared_db);
 
-    // Start the leader output pump -- reads PTY and emits 'leader-output' events
-    spawn_leader_output_pump_tauri(app, state.session_flow.clone());
-
     Ok(session_id)
 }
 
@@ -688,6 +738,7 @@ async fn send_to_leader(state: State<'_, AppState>, message: String) -> Result<(
         flow.advance_to_planning();
     }
 
+    eprintln!("[send_to_leader] sending: {}", &message[..message.len().min(80)]);
     flow.send_to_leader(&message).await
 }
 
@@ -792,24 +843,35 @@ fn spawn_leader_output_pump_tauri<R: Runtime>(
     session_flow: Arc<Mutex<SessionFlowController>>,
 ) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(100));
+        let mut interval = tokio::time::interval(Duration::from_millis(50)); // faster poll
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut consecutive_empty = 0u32;
         loop {
             interval.tick().await;
             let output = {
                 let mut flow = session_flow.lock().await;
-                // Stop pumping if session is complete or no leader connected
                 if flow.phase == SessionPhase::Complete || flow.leader_handle.is_none() {
                     break;
                 }
                 flow.read_leader_output().await
-            }; // mutex released here
-            if let Some(ref text) = output {
-                if !text.is_empty() {
+            };
+            match output {
+                Some(ref text) if !text.is_empty() => {
+                    consecutive_empty = 0;
                     let _ = app.emit("leader-output", serde_json::json!({"chunk": text}));
+                    eprintln!("[leader-pump] emitted {} bytes", text.len());
+                }
+                _ => {
+                    consecutive_empty += 1;
+                    // After 60 seconds of no output, stop pumping
+                    if consecutive_empty > 1200 {
+                        eprintln!("[leader-pump] no output for 60s, stopping");
+                        break;
+                    }
                 }
             }
         }
+        eprintln!("[leader-pump] stopped");
     });
 }
 
