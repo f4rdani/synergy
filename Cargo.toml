@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/synergy-proto",
+    "crates/synergy-pty",
+    "crates/synergy-proxy",
+    "crates/synergy-adapter",
+    "crates/synergy-core",
+    "crates/synergy-db",
+    "crates/synergy-win32",
+    "crates/synergy-config",
+    "crates/synergy-ui",
+    "crates/synergy-app",
+    "crates/synergy-tests",
+]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

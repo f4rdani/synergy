@@ -1,0 +1,16 @@
+[package]
+name = "synergy-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2.0" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+synergy-ui = { path = "../synergy-ui" }
+synergy-core = { path = "../synergy-core" }
+synergy-proto = { path = "../synergy-proto" }
+
+[build-dependencies]
+tauri-build = { version = "2.0" }

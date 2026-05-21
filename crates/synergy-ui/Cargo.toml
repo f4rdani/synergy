@@ -1,0 +1,19 @@
+[package]
+name = "synergy-ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tauri = { version = "2.0" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+chrono = "0.4"
+anyhow = "1.0"
+synergy-core = { path = "../synergy-core" }
+synergy-proto = { path = "../synergy-proto" }
+synergy-proxy = { path = "../synergy-proxy" }
+synergy-adapter = { path = "../synergy-adapter" }
+synergy-db = { path = "../synergy-db" }
+synergy-config = { path = "../synergy-config" }
+synergy-win32 = { path = "../synergy-win32" }

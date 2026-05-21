@@ -1,0 +1,22 @@
+[package]
+name = "synergy-tests"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Pure integration test harness — no library, no binary.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+anyhow = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+chrono = "0.4"
+synergy-proto = { path = "../synergy-proto" }
+synergy-core = { path = "../synergy-core" }
+synergy-adapter = { path = "../synergy-adapter" }
+synergy-db = { path = "../synergy-db" }
+synergy-proxy = { path = "../synergy-proxy" }
+synergy-pty = { path = "../synergy-pty" }

@@ -1,0 +1,30 @@
+{
+  "productName": "Synergy",
+  "version": "0.2.0",
+  "identifier": "com.synergy.app",
+  "build": {
+    "frontendDist": "../synergy-ui/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Synergy - Multi-App AI Workspace Orchestrator",
+        "width": 1400,
+        "height": 900,
+        "minWidth": 1024,
+        "minHeight": 640,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.ico"]
+  }
+}

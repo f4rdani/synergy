@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Synergy</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+--bg:#1e1e2e;--bg-surface:#181825;--bg-overlay:#11111b;--bg-mantle:#181825;
+--bg-crust:#11111b;--border:#313244;--border-active:#89b4fa;
+--text:#cdd6f4;--text-sub:#a6adc8;--text-dim:#585b70;
+--accent:#89b4fa;--green:#a6e3a1;--yellow:#f9e2af;--red:#f38ba8;
+--mauve:#cba6f7;--peach:#fab387;--teal:#94e2d5;
+--surface0:#313244;--surface1:#45475a;--surface2:#585b70;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter',system-ui,sans-serif;font-size:13px;overflow:hidden}
+.app{display:flex;flex-direction:column;height:100vh}
+
+/* ─── Menu Bar (VS Code style) ─── */
+.menubar{display:flex;align-items:center;height:30px;background:var(--bg-crust);border-bottom:1px solid var(--border);padding:0 8px;user-select:none;-webkit-app-region:drag}
+.menubar-left{display:flex;align-items:center;gap:0;-webkit-app-region:no-drag}
+.menu-item{padding:4px 10px;font-size:12px;color:var(--text-sub);cursor:pointer;border-radius:4px;position:relative}
+.menu-item:hover{background:var(--surface0);color:var(--text)}
+.menubar-center{flex:1;text-align:center;font-size:11px;color:var(--text-dim);font-weight:500}
+.menubar-right{display:flex;align-items:center;gap:6px;-webkit-app-region:no-drag}
+.menubar-right .dot{width:7px;height:7px;border-radius:50%;background:var(--green)}
+
+/* ─── Main Layout ─── */
+.main-layout{flex:1;display:flex;min-height:0}
+.sidebar{width:48px;background:var(--bg-crust);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:8px 0;gap:4px}
+.sidebar-icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-dim);transition:all .15s}
+.sidebar-icon:hover{background:var(--surface0);color:var(--text)}
+.sidebar-icon.active{color:var(--accent);background:rgba(137,180,250,.1)}
+.content-area{flex:1;display:flex;min-height:0}
+
+/* ─── Panel: Workers ─── */
+.panel-workers{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border)}
+.panel-header{height:36px;display:flex;align-items:center;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px;gap:8px}
+.panel-header .badge{background:var(--surface0);color:var(--accent);padding:1px 6px;border-radius:3px;font-size:10px}
+.workers-grid{flex:1;display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:1px;background:var(--border);overflow-y:auto}
+.worker-card{background:var(--bg);display:flex;flex-direction:column;min-height:180px}
+.worker-top{display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg-surface);border-bottom:1px solid var(--border)}
+.worker-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600}
+.worker-label .dot{width:6px;height:6px;border-radius:50%}
+.dot-idle{background:var(--text-dim)}.dot-working{background:var(--accent);box-shadow:0 0 6px var(--accent);animation:pulse 1.2s infinite}
+.dot-done{background:var(--green)}.dot-error{background:var(--red)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.worker-ip{font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+.worker-term{flex:1;background:var(--bg-overlay);padding:4px;min-height:0}
+.worker-input{display:flex;padding:4px 6px;background:var(--bg-surface);border-top:1px solid var(--border);gap:4px}
+.worker-input input{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:3px;padding:4px 8px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);outline:none}
+.worker-input input:focus{border-color:var(--accent)}
+
+/* ─── Panel: Leader (Chat) ─── */
+.panel-leader{width:420px;display:flex;flex-direction:column;min-height:0;background:var(--bg-surface)}
+.leader-provider{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border)}
+.leader-provider select{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:4px;padding:5px 8px;color:var(--text);font-size:12px;outline:none;cursor:pointer}
+.leader-provider select:focus{border-color:var(--accent)}
+.chat-area{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+.chat-msg{max-width:90%;padding:10px 14px;border-radius:10px;font-size:13px;line-height:1.5;word-break:break-word}
+.chat-msg.user{align-self:flex-end;background:var(--accent);color:var(--bg-crust);border-bottom-right-radius:2px}
+.chat-msg.assistant{align-self:flex-start;background:var(--surface0);color:var(--text);border-bottom-left-radius:2px}
+.chat-msg.system{align-self:center;background:transparent;color:var(--text-dim);font-size:11px;font-style:italic}
+.chat-input-area{padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px}
+.chat-input-area textarea{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text);font-family:inherit;font-size:13px;resize:none;outline:none;min-height:40px;max-height:120px}
+.chat-input-area textarea:focus{border-color:var(--accent)}
+.chat-input-area button{align-self:flex-end;background:var(--accent);border:none;border-radius:6px;padding:8px 14px;color:var(--bg-crust);font-weight:600;font-size:12px;cursor:pointer}
+.chat-input-area button:hover{opacity:.85}
+
+/* ─── Status Bar ─── */
+.statusbar{height:24px;display:flex;align-items:center;padding:0 10px;background:var(--accent);color:var(--bg-crust);font-size:11px;font-weight:500;gap:14px}
+.statusbar .sep{width:1px;height:12px;background:rgba(0,0,0,.2)}
+
+/* ─── Scrollbar ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--surface1);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--surface2)}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+// Synergy UI — Functional Leader Chat + Worker Terminals
+// ═══════════════════════════════════════════════════════════════════════
+
+const STATE = {
+  sessionId: null, workerCount: 6,
+  messages: [], terminals: new Map(), workers: [],
+};
+
+// ─── Render ──────────────────────────────────────────────────────────
+function render() {
+  document.getElementById('app').innerHTML = `
+    <div class="menubar">
+      <div class="menubar-left"></div>
+      <div class="menubar-center">Synergy — Multi-App AI Workspace Orchestrator</div>
+      <div class="menubar-right">
+        <span class="dot"></span>
+        <span style="font-size:11px;color:var(--text-dim)">Workers: <span id="sbWorkers">0/6</span></span>
+      </div>
+    </div>
+    <div class="main-layout">
+      <div class="sidebar">
+        <div class="sidebar-icon active" title="Workers">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </div>
+      </div>
+      <div class="content-area">
+        <div class="panel-workers">
+          <div class="panel-header">
+            <span>Workers (OpenCode Free)</span>
+            <span class="badge" id="workerBadge">6 instances · each with unique IP</span>
+          </div>
+          <div class="workers-grid" id="workersGrid"></div>
+        </div>
+        <div class="panel-leader">
+          <div class="panel-header"><span>Leader</span></div>
+          <div class="chat-area" id="chatArea">
+            <div class="chat-msg system">Send any message. It will be executed by an idle Worker.<br><br>Tips:<br>• Single command → sent to 1 Worker<br>• Numbered list → each item sent to a different Worker in parallel</div>
+          </div>
+          <div class="chat-input-area">
+            <textarea id="chatInput" placeholder="Type a task or plan..." rows="2" onkeydown="onChatKey(event)"></textarea>
+            <button onclick="sendChat()">Send</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="statusbar">
+      <span>Synergy v0.2</span><span class="sep"></span>
+      <span id="sbTasks">Tasks: 0</span><span class="sep"></span>
+      <span id="sbSession">Initializing...</span>
+    </div>
+  `;
+  buildWorkers();
+  autoInit();
+}
+
+// ─── Workers ─────────────────────────────────────────────────────────
+function buildWorkers() {
+  const grid = document.getElementById('workersGrid');
+  grid.innerHTML = '';
+  for (let i = 0; i < STATE.workerCount; i++) {
+    const card = document.createElement('div');
+    card.className = 'worker-card';
+    card.innerHTML = `
+      <div class="worker-top">
+        <div class="worker-label"><span class="dot dot-idle" id="wdot-${i}"></span>Worker #${i+1}</div>
+        <div class="worker-ip" id="wip-${i}">IP: proxy-${i+1}</div>
+      </div>
+      <div class="worker-term" id="wterm-${i}"></div>
+      <div class="worker-input"><input placeholder="$ direct command to this worker..." onkeydown="onWorkerKey(event,${i})"/></div>
+    `;
+    grid.appendChild(card);
+  }
+  requestAnimationFrame(() => {
+    for (let i = 0; i < STATE.workerCount; i++) initTerm(i);
+  });
+}
+
+function initTerm(id) {
+  const host = document.getElementById(`wterm-${id}`);
+  if (!host || STATE.terminals.has(id)) return;
+  const term = new Terminal({
+    fontFamily:'"JetBrains Mono",monospace', fontSize:11, lineHeight:1.2,
+    convertEol:true, scrollback:3000,
+    theme:{background:'#11111b',foreground:'#cdd6f4',cursor:'#89b4fa',selectionBackground:'rgba(137,180,250,.25)'}
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit); term.open(host);
+  try{fit.fit()}catch(e){}
+  STATE.terminals.set(id, {term, fit});
+  new ResizeObserver(()=>{try{fit.fit()}catch(e){}}).observe(host);
+  term.writeln('\x1b[2m# Worker '+(id+1)+' ready\x1b[0m');
+}
+
+function onWorkerKey(ev, id) {
+  if (ev.key !== 'Enter') return;
+  const text = ev.target.value; if (!text) return;
+  ev.target.value = '';
+  invoke('send_worker_command', {worker_id: id, command: text}).catch(e => addMsg('system','Send error: '+e));
+}
+
+// ─── Leader Chat (FUNCTIONAL) ────────────────────────────────────────
+function onChatKey(ev) {
+  if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); sendChat(); }
+}
+
+async function sendChat() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim(); if (!text) return;
+  input.value = '';
+  addMsg('user', text);
+
+  if (!STATE.sessionId) {
+    addMsg('system', 'Waiting for session...');
+    await autoInit();
+  }
+
+  try {
+    // Try to parse as numbered plan first
+    const lines = text.split('\n');
+    const numbered = lines.map(l => l.match(/^\s*(\d+)[\.\)]\s+(.+)$/)).filter(Boolean);
+
+    if (numbered.length > 0) {
+      // Multiple tasks from numbered list
+      const ids = await invoke('add_plan', {session_id: STATE.sessionId, plan_text: text});
+      addMsg('assistant', `✓ Created ${ids.length} task(s) — distributing to Workers...`);
+    } else {
+      // Single task — send the whole message as one task
+      const taskId = await invoke('add_task', { args: {
+        session_id: STATE.sessionId,
+        title: text.slice(0, 60),
+        instruction: text,
+        depends_on: [],
+        files_target: []
+      }});
+      addMsg('assistant', `✓ Task scheduled (${taskId}) — sending to next idle Worker...`);
+    }
+  } catch(e) {
+    addMsg('system', 'Error: ' + e);
+  }
+}
+
+function addMsg(role, content) {
+  STATE.messages.push({role, content});
+  const area = document.getElementById('chatArea');
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  div.textContent = content;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+// ─── Session Init ────────────────────────────────────────────────────
+async function autoInit() {
+  if (STATE.sessionId) return;
+  try {
+    const sid = await invoke('init_session', { args: {
+      db_path: 'synergy.db', project_name: 'Synergy Workspace',
+      bin_path: 'cmd.exe', worker_count: STATE.workerCount,
+      adapter_id: 'cli-generic', project_dir: null
+    }});
+    STATE.sessionId = sid;
+    document.getElementById('sbSession').textContent = 'Session: ' + sid;
+    addMsg('system', 'Session started. ' + STATE.workerCount + ' Workers ready.');
+    subscribeOutput();
+    setInterval(pollState, 1000);
+  } catch(e) {
+    console.error('init failed', e);
+    addMsg('system', 'Init failed: ' + e);
+  }
+}
+
+async function subscribeOutput() {
+  await listen('worker-output', ev => {
+    const p = ev.payload || ev;
+    const entry = STATE.terminals.get(p.worker_id);
+    if (entry) entry.term.write(p.chunk);
+  });
+}
+
+async function pollState() {
+  if (!STATE.sessionId) return;
+  try {
+    const s = await invoke('get_state', {session_id: STATE.sessionId});
+    STATE.workers = s.workers || [];
+    const busy = STATE.workers.filter(w=>w.status==='working').length;
+    document.getElementById('sbWorkers').textContent = `${busy}/${STATE.workers.length}`;
+    document.getElementById('sbTasks').textContent = `Tasks: ${(s.tasks||[]).length}`;
+    STATE.workers.forEach(w => {
+      const dot = document.getElementById('wdot-'+w.id);
+      if (dot) dot.className = 'dot dot-'+w.status;
+      const ip = document.getElementById('wip-'+w.id);
+      if (ip) ip.textContent = w.proxy_addr || 'direct';
+    });
+  } catch(e) {}
+}
+
+// ─── Tauri Bridge ────────────────────────────────────────────────────
+const tauri = (()=>{
+  const t=window.__TAURI__;
+  if(t&&t.core&&typeof t.core.invoke==='function') return{invoke:t.core.invoke.bind(t.core),listen:t.event?t.event.listen.bind(t.event):null};
+  return null;
+})();
+const mockListeners={};
+async function invoke(cmd,args={}){if(tauri)return tauri.invoke(cmd,args);return mockInvoke(cmd,args)}
+async function listen(ev,cb){if(tauri&&tauri.listen)return tauri.listen(ev,cb);mockListeners[ev]=cb;return()=>{}}
+
+// ─── Mock (browser preview only) ────────────────────────────────────
+const mock={session:null,tasks:[],workers:[]};
+async function mockInvoke(cmd,args){
+  await new Promise(r=>setTimeout(r,30));
+  if(cmd==='init_session'){
+    const a=args.args||{};
+    mock.session='s_mock_'+Date.now();
+    mock.workers=Array.from({length:a.worker_count||6},(_,i)=>({id:i,proxy_addr:`socks5://proxy-${i+1}:1080`,status:'idle',current_task_id:null}));
+    setInterval(mockTick,1500);
+    return mock.session;
+  }
+  if(cmd==='get_state')return{tasks:mock.tasks,workers:mock.workers,logs:[]};
+  if(cmd==='add_plan'){
+    const text=args.plan_text||'';
+    const lines=text.split('\n').map(l=>l.match(/^\s*(\d+)[\.\)]\s+(.+)$/)).filter(Boolean);
+    const ids=lines.map((m,i)=>{const id='t_'+Date.now()+'_'+i;mock.tasks.push({id,title:m[2],instruction:m[2],status:'pending',worker_id:null});return id});
+    return ids;
+  }
+  if(cmd==='add_task'){
+    const a=args.args||args;
+    const id='t_'+Date.now();
+    mock.tasks.push({id,title:a.title||'task',instruction:a.instruction||'',status:'pending',worker_id:null});
+    return id;
+  }
+  if(cmd==='send_worker_command'){
+    const cb=mockListeners['worker-output'];
+    if(cb)cb({payload:{worker_id:args.worker_id,task_id:null,chunk:`\r\n$ ${args.command}\r\n(executed)\r\n`}});
+    return null;
+  }
+  return null;
+}
+function mockTick(){
+  for(const t of mock.tasks){
+    if(t.status!=='pending')continue;
+    const w=mock.workers.find(x=>x.status==='idle');if(!w)break;
+    t.status='running';t.worker_id=w.id;w.status='working';w.current_task_id=t.id;
+    const cb=mockListeners['worker-output'];
+    if(cb)cb({payload:{worker_id:w.id,task_id:t.id,chunk:`\r\n\x1b[36m> ${t.instruction}\x1b[0m\r\n`}});
+    setTimeout(()=>{
+      t.status='done';w.status='idle';w.current_task_id=null;
+      if(cb)cb({payload:{worker_id:w.id,task_id:t.id,chunk:'\x1b[32m✓ Done\x1b[0m\r\n'}});
+    },2000);
+    break;
+  }
+}
+
+// ─── Boot ────────────────────────────────────────────────────────────
+render();
+</script>
+</body>
+</html>

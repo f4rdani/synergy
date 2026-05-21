@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Synergy — Multi-App AI Workspace Orchestrator</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg-base:#0a0e17;
+  --bg-panel:#111827;
+  --bg-panel-hover:#1a2236;
+  --bg-header:#0d1321;
+  --bg-terminal:#080c14;
+  --bg-progress:#0e1525;
+  --border:#1e293b;
+  --border-active:#3b82f6;
+  --text:#e2e8f0;
+  --text-muted:#64748b;
+  --text-dim:#475569;
+  --accent:#3b82f6;
+  --accent-glow:rgba(59,130,246,0.15);
+  --green:#22c55e;
+  --green-dim:rgba(34,197,94,0.15);
+  --yellow:#eab308;
+  --yellow-dim:rgba(234,179,8,0.15);
+  --red:#ef4444;
+  --red-dim:rgba(239,68,68,0.15);
+  --cyan:#06b6d4;
+  --purple:#a855f7;
+  --orange:#f97316;
+}
+html,body{height:100%;overflow:hidden;background:var(--bg-base);color:var(--text);font-family:'Inter',sans-serif}
+.app{display:flex;flex-direction:column;height:100vh}
+
+.titlebar{
+  display:flex;align-items:center;justify-content:space-between;
+  height:36px;padding:0 16px;
+  background:linear-gradient(180deg,#111827 0%,#0d1321 100%);
+  border-bottom:1px solid var(--border);
+  -webkit-app-region:drag;user-select:none;
+}
+.titlebar-logo{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--accent)}
+.titlebar-logo svg{width:16px;height:16px}
+.titlebar-controls{display:flex;gap:8px}
+.titlebar-controls span{width:12px;height:12px;border-radius:50%;opacity:0.7;cursor:pointer;transition:opacity .2s}
+.titlebar-controls span:hover{opacity:1}
+.ctrl-close{background:#ef4444}
+.ctrl-min{background:#eab308}
+.ctrl-max{background:#22c55e}
+
+.main{display:flex;flex:1;overflow:hidden}
+
+.progress-panel{
+  width:220px;min-width:180px;
+  background:var(--bg-progress);
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  overflow-y:auto;
+}
+.progress-header{
+  padding:14px 16px 10px;
+  border-bottom:1px solid var(--border);
+  font-size:11px;font-weight:600;
+  text-transform:uppercase;letter-spacing:1.2px;
+  color:var(--text-muted);
+  display:flex;align-items:center;gap:6px;
+}
+.progress-header::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse-dot 2s ease infinite}
+@keyframes pulse-dot{0%,100%{opacity:1}50%{opacity:.3}}
+
+.progress-section{padding:12px 14px}
+.progress-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.progress-subtitle{font-size:11px;color:var(--text-muted);margin-bottom:14px}
+
+.task-list{list-style:none}
+.task-item{
+  display:flex;align-items:flex-start;gap:8px;
+  padding:6px 8px;margin-bottom:2px;border-radius:6px;
+  font-size:12px;line-height:1.4;
+  transition:background .2s;cursor:default;
+}
+.task-item:hover{background:rgba(255,255,255,.03)}
+.task-icon{flex-shrink:0;width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:11px;margin-top:1px}
+.task-done .task-icon{color:var(--green)}
+.task-running .task-icon{color:var(--accent);animation:spin 1.5s linear infinite}
+.task-pending .task-icon{color:var(--text-dim)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.task-text{color:var(--text)}
+.task-done .task-text{color:var(--text-muted);text-decoration:line-through;text-decoration-color:var(--text-dim)}
+.task-running .task-text{color:var(--accent);font-weight:500}
+
+.progress-bar-container{margin:16px 0 12px}
+.progress-bar-label{display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:6px}
+.progress-bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden}
+.progress-bar-fill{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--accent),var(--cyan));transition:width 1s ease;position:relative}
+.progress-bar-fill::after{content:"";position:absolute;top:0;left:0;right:0;bottom:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent);animation:shimmer 2s infinite}
+@keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+
+.worker-status-section{margin-top:8px}
+.worker-status-title{font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;padding:0 8px}
+.worker-mini{
+  display:flex;align-items:center;gap:6px;
+  padding:4px 8px;font-size:11px;font-family:'JetBrains Mono',monospace;
+  border-radius:4px;margin-bottom:2px;
+}
+.worker-mini:hover{background:rgba(255,255,255,.03)}
+.worker-mini-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.worker-mini-dot.active{background:var(--green);box-shadow:0 0 6px var(--green)}
+.worker-mini-dot.working{background:var(--accent);box-shadow:0 0 6px var(--accent);animation:pulse-dot 1.5s ease infinite}
+.worker-mini-dot.idle{background:var(--text-dim)}
+.worker-mini-label{color:var(--text-muted)}
+.worker-mini-task{color:var(--text);margin-left:auto;font-size:10px}
+
+.log-section{margin-top:12px;padding-top:12px;border-top:1px solid var(--border)}
+.log-title{font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:8px;padding:0 8px}
+.log-entry{padding:3px 8px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--text-dim);line-height:1.5}
+.log-entry .log-time{color:var(--text-dim);margin-right:4px}
+.log-entry .log-worker{color:var(--cyan)}
+.log-entry .log-msg{color:var(--text-muted)}
+
+.workers-panel{
+  flex:1;display:flex;flex-direction:column;
+  background:var(--bg-base);
+  border-right:1px solid var(--border);
+  min-width:0;
+}
+.workers-panel-header{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 16px;
+  background:var(--bg-header);
+  border-bottom:1px solid var(--border);
+  font-size:12px;
+}
+.workers-panel-title{font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px}
+.workers-panel-title span{background:var(--accent);color:#fff;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:600}
+.workers-grid{
+  flex:1;display:grid;
+  grid-template-columns:1fr 1fr;
+  grid-template-rows:1fr 1fr 1fr;
+  gap:1px;background:var(--border);
+  overflow:hidden;
+}
+
+.worker-cell{
+  display:flex;flex-direction:column;
+  background:var(--bg-panel);
+  overflow:hidden;
+  transition:background .2s;
+  cursor:pointer;
+}
+.worker-cell:hover{background:var(--bg-panel-hover)}
+.worker-cell.active{box-shadow:inset 0 0 0 1px var(--accent)}
+.worker-header{
+  display:flex;align-items:center;gap:8px;
+  padding:6px 10px;
+  background:var(--bg-header);
+  border-bottom:1px solid var(--border);
+  font-size:11px;
+}
+.worker-badge{display:flex;align-items:center;gap:5px;font-weight:600;color:var(--text)}
+.worker-dot{width:7px;height:7px;border-radius:50%}
+.worker-dot.green{background:var(--green);box-shadow:0 0 8px rgba(34,197,94,.5)}
+.worker-dot.blue{background:var(--accent);box-shadow:0 0 8px rgba(59,130,246,.5);animation:pulse-dot 1.5s ease infinite}
+.worker-dot.gray{background:var(--text-dim)}
+.worker-dot.yellow{background:var(--yellow);box-shadow:0 0 8px rgba(234,179,8,.4)}
+.worker-meta{display:flex;gap:10px;margin-left:auto;font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace}
+.worker-meta .proxy{color:var(--cyan)}
+.worker-meta .model{color:var(--purple)}
+.worker-status-badge{
+  font-size:9px;font-weight:600;padding:1px 6px;border-radius:8px;
+  text-transform:uppercase;letter-spacing:.5px;
+}
+.badge-working{background:var(--accent-glow);color:var(--accent)}
+.badge-done{background:var(--green-dim);color:var(--green)}
+.badge-idle{background:rgba(100,116,139,.15);color:var(--text-dim)}
+.badge-error{background:var(--red-dim);color:var(--red)}
+
+.worker-terminal{
+  flex:1;padding:8px 10px;overflow-y:auto;
+  font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;
+  background:var(--bg-terminal);
+  color:var(--text-muted);
+}
+.worker-terminal .prompt{color:var(--green)}
+.worker-terminal .cmd{color:var(--text)}
+.worker-terminal .output{color:var(--text-muted)}
+.worker-terminal .success{color:var(--green)}
+.worker-terminal .error{color:var(--red)}
+.worker-terminal .info{color:var(--cyan)}
+.worker-terminal .file{color:var(--yellow)}
+.worker-terminal .thinking{color:var(--purple);font-style:italic}
+.cursor-blink{animation:blink 1s step-end infinite;color:var(--green)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+.leader-panel{
+  width:380px;min-width:300px;
+  display:flex;flex-direction:column;
+  background:var(--bg-panel);
+}
+.leader-header{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 16px;
+  background:linear-gradient(135deg,#111827,#1a1040);
+  border-bottom:1px solid var(--border);
+}
+.leader-icon{
+  width:32px;height:32px;border-radius:8px;
+  background:linear-gradient(135deg,var(--accent),var(--purple));
+  display:flex;align-items:center;justify-content:center;
+  font-size:14px;font-weight:700;color:#fff;
+}
+.leader-info{flex:1}
+.leader-name{font-size:13px;font-weight:600;color:var(--text)}
+.leader-model{font-size:11px;color:var(--purple);font-family:'JetBrains Mono',monospace}
+.leader-status-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px rgba(34,197,94,.5)}
+
+.leader-terminal{
+  flex:1;overflow-y:auto;padding:12px 14px;
+  font-family:'JetBrains Mono',monospace;font-size:11.5px;line-height:1.7;
+  background:var(--bg-terminal);
+}
+.leader-terminal .prompt{color:var(--accent)}
+.leader-terminal .user-msg{color:var(--text);background:rgba(59,130,246,.08);padding:8px 10px;border-radius:8px;border-left:3px solid var(--accent);margin:8px 0}
+.leader-terminal .ai-msg{color:var(--text);padding:4px 0}
+.leader-terminal .task-block{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.15);border-radius:6px;padding:8px 10px;margin:8px 0}
+.leader-terminal .task-line{color:var(--text);font-size:11px}
+.leader-terminal .task-num{color:var(--green);font-weight:600}
+.leader-terminal .report-block{background:rgba(6,182,212,.06);border:1px solid rgba(6,182,212,.15);border-radius:6px;padding:8px 10px;margin:8px 0}
+.leader-terminal .report-title{color:var(--cyan);font-weight:600;font-size:11px}
+.leader-terminal .report-line{color:var(--text-muted);font-size:11px}
+.leader-terminal .review-ok{color:var(--green)}
+.leader-terminal .review-warn{color:var(--yellow)}
+
+.leader-input{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 14px;
+  background:var(--bg-header);
+  border-top:1px solid var(--border);
+}
+.leader-input input{
+  flex:1;background:var(--bg-terminal);border:1px solid var(--border);
+  border-radius:6px;padding:8px 12px;
+  color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;
+  outline:none;transition:border-color .2s;
+}
+.leader-input input:focus{border-color:var(--accent)}
+.leader-input input::placeholder{color:var(--text-dim)}
+.leader-input button{
+  background:linear-gradient(135deg,var(--accent),#6366f1);
+  border:none;border-radius:6px;padding:8px 14px;
+  color:#fff;font-size:12px;font-weight:600;cursor:pointer;
+  transition:transform .1s,box-shadow .2s;
+}
+.leader-input button:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(59,130,246,.3)}
+
+.statusbar{
+  display:flex;align-items:center;gap:20px;
+  padding:6px 16px;
+  background:linear-gradient(180deg,#0d1321,#0a0e17);
+  border-top:1px solid var(--border);
+  font-size:11px;font-family:'JetBrains Mono',monospace;
+}
+.status-item{display:flex;align-items:center;gap:6px;color:var(--text-muted)}
+.status-item .dot{width:6px;height:6px;border-radius:50%}
+.status-item .val{color:var(--text);font-weight:500}
+.status-progress{margin-left:auto;display:flex;align-items:center;gap:8px}
+.mini-bar{width:80px;height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.mini-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--green));border-radius:2px;transition:width 2s ease}
+
+.typing-indicator{display:inline-flex;gap:3px;margin-left:4px;vertical-align:middle}
+.typing-indicator span{width:4px;height:4px;border-radius:50%;background:var(--accent);animation:typing 1.4s infinite}
+.typing-indicator span:nth-child(2){animation-delay:.2s}
+.typing-indicator span:nth-child(3){animation-delay:.4s}
+@keyframes typing{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="titlebar">
+    <div class="titlebar-logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+      Synergy
+      <span style="font-size:10px;color:var(--text-dim);font-weight:400">v0.1-prototype</span>
+    </div>
+    <div class="titlebar-controls">
+      <span class="ctrl-min"></span>
+      <span class="ctrl-max"></span>
+      <span class="ctrl-close"></span>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="progress-panel">
+      <div class="progress-header">● Live Progress</div>
+      <div class="progress-section">
+        <div class="progress-title">Fitur: Login Auth</div>
+        <div class="progress-subtitle">Express.js + PostgreSQL</div>
+
+        <ul class="task-list">
+          <li class="task-item task-done"><span class="task-icon">✓</span><span class="task-text">Migration tabel users</span></li>
+          <li class="task-item task-done"><span class="task-icon">✓</span><span class="task-text">Model User + bcrypt</span></li>
+          <li class="task-item task-running"><span class="task-icon">⟳</span><span class="task-text">AuthController (login/register)</span></li>
+          <li class="task-item task-running"><span class="task-icon">⟳</span><span class="task-text">Login page (EJS template)</span></li>
+          <li class="task-item task-pending"><span class="task-icon">○</span><span class="task-text">Unit test auth</span></li>
+          <li class="task-item task-pending"><span class="task-icon">○</span><span class="task-text">Integration test</span></li>
+          <li class="task-item task-pending"><span class="task-icon">○</span><span class="task-text">Review & cleanup</span></li>
+        </ul>
+
+        <div class="progress-bar-container">
+          <div class="progress-bar-label">
+            <span>Progress</span>
+            <span style="color:var(--accent);font-weight:600">2/7 (29%)</span>
+          </div>
+          <div class="progress-bar"><div class="progress-bar-fill" style="width:29%"></div></div>
+        </div>
+
+        <div class="worker-status-section">
+          <div class="worker-status-title">Workers</div>
+          <div class="worker-mini"><span class="worker-mini-dot working"></span><span class="worker-mini-label">W1</span><span class="worker-mini-task">▶ Task #3</span></div>
+          <div class="worker-mini"><span class="worker-mini-dot working"></span><span class="worker-mini-label">W2</span><span class="worker-mini-task">▶ Task #4</span></div>
+          <div class="worker-mini"><span class="worker-mini-dot active"></span><span class="worker-mini-label">W3</span><span class="worker-mini-task" style="color:var(--green)">✓ idle</span></div>
+          <div class="worker-mini"><span class="worker-mini-dot idle"></span><span class="worker-mini-label">W4</span><span class="worker-mini-task">idle</span></div>
+          <div class="worker-mini"><span class="worker-mini-dot idle"></span><span class="worker-mini-label">W5</span><span class="worker-mini-task">idle</span></div>
+          <div class="worker-mini"><span class="worker-mini-dot idle"></span><span class="worker-mini-label">W6</span><span class="worker-mini-task">idle</span></div>
+        </div>
+
+        <div class="log-section">
+          <div class="log-title">Activity Log</div>
+          <div class="log-entry"><span class="log-time">15:24</span> <span class="log-worker">W1</span> <span class="log-msg">mulai task #3</span></div>
+          <div class="log-entry"><span class="log-time">15:24</span> <span class="log-worker">W2</span> <span class="log-msg">mulai task #4</span></div>
+          <div class="log-entry"><span class="log-time">15:23</span> <span class="log-worker">W3</span> <span class="log-msg" style="color:var(--green)">✓ selesai task #2</span></div>
+          <div class="log-entry"><span class="log-time">15:21</span> <span class="log-worker">W1</span> <span class="log-msg" style="color:var(--green)">✓ selesai task #1</span></div>
+          <div class="log-entry"><span class="log-time">15:20</span> <span class="log-worker">LDR</span> <span class="log-msg" style="color:var(--purple)">delegasi 4 task</span></div>
+          <div class="log-entry"><span class="log-time">15:19</span> <span class="log-worker">USR</span> <span class="log-msg">input: "buat login"</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="workers-panel">
+      <div class="workers-panel-header">
+        <div class="workers-panel-title">Workers <span>6 instances</span></div>
+        <div style="display:flex;gap:6px;font-size:10px;color:var(--text-dim)">
+          <span style="color:var(--green)">● 2 busy</span>
+          <span>● 4 idle</span>
+        </div>
+      </div>
+      <div class="workers-grid">
+
+        <div class="worker-cell active">
+          <div class="worker-header">
+            <div class="worker-badge"><span class="worker-dot blue"></span>Worker 1</div>
+            <div class="worker-meta"><span class="proxy">IP-A</span><span class="model">sonnet-4</span></div>
+            <span class="worker-status-badge badge-working">working</span>
+          </div>
+          <div class="worker-terminal">
+            <div><span class="prompt">$</span> <span class="cmd">opencode</span></div>
+            <div><span class="info">Using model: claude-sonnet-4 (free tier)</span></div>
+            <div><span class="info">Proxy: socks5://proxy-a:1080</span></div>
+            <div style="margin-top:4px"><span class="prompt">></span> <span class="cmd">Buat AuthController dengan method login, register, dan logout untuk Express.js. Gunakan bcrypt untuk hashing password.</span></div>
+            <div style="margin-top:6px"><span class="thinking">⠋ Analyzing project structure...</span></div>
+            <div><span class="thinking">⠋ Reading src/models/User.ts...</span></div>
+            <div style="margin-top:4px"><span class="output">Creating</span> <span class="file">src/controllers/AuthController.ts</span></div>
+            <div><span class="output">├── import User from '../models/User'</span></div>
+            <div><span class="output">├── import bcrypt from 'bcrypt'</span></div>
+            <div><span class="output">├── export class AuthController {</span></div>
+            <div><span class="output">│   ├── async login(req, res) { ... }</span></div>
+            <div><span class="output">│   ├── async register(req, res) { ... }</span></div>
+            <div><span class="thinking">⠋ Writing logout method...</span> <span class="cursor-blink">█</span></div>
+          </div>
+        </div>
+
+        <div class="worker-cell active">
+          <div class="worker-header">
+            <div class="worker-badge"><span class="worker-dot yellow"></span>Worker 2</div>
+            <div class="worker-meta"><span class="proxy">IP-B</span><span class="model">gpt-4o-mini</span></div>
+            <span class="worker-status-badge badge-working">working</span>
+          </div>
+          <div class="worker-terminal">
+            <div><span class="prompt">$</span> <span class="cmd">opencode</span></div>
+            <div><span class="info">Using model: gpt-4o-mini (free tier)</span></div>
+            <div><span class="info">Proxy: socks5://proxy-b:1080</span></div>
+            <div style="margin-top:4px"><span class="prompt">></span> <span class="cmd">Buat halaman login menggunakan EJS template dengan form email dan password. Styling modern dark theme.</span></div>
+            <div style="margin-top:6px"><span class="thinking">⠋ Thinking...</span></div>
+            <div style="margin-top:4px"><span class="output">Creating</span> <span class="file">src/views/login.ejs</span></div>
+            <div><span class="output">Creating</span> <span class="file">src/public/css/auth.css</span></div>
+            <div><span class="thinking">⠋ Writing form components...</span> <span class="cursor-blink">█</span></div>
+          </div>
+        </div>
+
+        <div class="worker-cell">
+          <div class="worker-header">
+            <div class="worker-badge"><span class="worker-dot green"></span>Worker 3</div>
+            <div class="worker-meta"><span class="proxy">IP-C</span><span class="model">sonnet-4</span></div>
+            <span class="worker-status-badge badge-done">done</span>
+          </div>
+          <div class="worker-terminal">
+            <div><span class="prompt">$</span> <span class="cmd">opencode</span></div>
+            <div><span class="info">Using model: claude-sonnet-4 (free tier)</span></div>
+            <div><span class="info">Proxy: socks5://proxy-c:1080</span></div>
+            <div style="margin-top:4px"><span class="prompt">></span> <span class="cmd">Buat model User dengan field email, password (hashed), name, created_at. Gunakan bcrypt.</span></div>
+            <div style="margin-top:6px"><span class="output">Creating</span> <span class="file">src/models/User.ts</span> <span class="success">(78 lines)</span></div>
+            <div><span class="success">✓ File created successfully</span></div>
+            <div><span class="output">Running validation...</span></div>
+            <div><span class="success">✓ TypeScript compilation: OK</span></div>
+            <div><span class="success">✓ Task completed in 34s</span></div>
+            <div style="margin-top:4px"><span class="prompt">></span> <span class="cursor-blink">█</span> <span class="output" style="font-size:10px;color:var(--text-dim)">idle — waiting for next task</span></div>
+          </div>
+        </div>
+
+        <div class="worker-cell">
+          <div class="worker-header">
+            <div class="worker-badge"><span class="worker-dot gray"></span>Worker 4</div>
+            <div class="worker-meta"><span class="proxy">IP-D</span><span class="model">deepseek</span></div>
+            <span class="worker-status-badge badge-idle">idle</span>
+          </div>
+          <div class="worker-terminal">
+            <div><span class="prompt">$</span> <span class="cmd">opencode</span></div>
+            <div><span class="info">Using model: deepseek-coder (free tier)</span></div>
+            <div><span class="info">Proxy: socks5://proxy-d:1080</span></div>
+            <div style="margin-top:4px"><span class="prompt">></span> <span class="cursor-blink">█</span> <span class="output" style="font-size:10px;color:var(--text-dim)">idle — waiting for task assignment</span></div>
+          </div>
+        </div>
+
+        <div class="worker-cell">
+          <div class="worker-header">
+            <div class="worker-badge"><span class="worker-dot gray"></span>Worker 5</div>
+            <div class="worker-meta"><span class="proxy">IP-E</span><span class="model">sonnet-4</span></div>
+            <span class="worker-status-badge badge-idle">idle</span>
+          </div>
+          <div class="worker-terminal">
+            <div><span class="prompt">$</span> <span class="cmd">opencode</span></div>
+            <div><span class="info">Using model: claude-sonnet-4 (free tier)</span></div>
+            <div><span class="info">Proxy: socks5://proxy-e:1080</span></div>
+            <div style="margin-top:4px"><span class="prompt">></span> <span class="cursor-blink">█</span> <span class="output" style="font-size:10px;color:var(--text-dim)">standby</span></div>
+          </div>
+        </div>
+
+        <div class="worker-cell">
+          <div class="worker-header">
+            <div class="worker-badge"><span class="worker-dot gray"></span>Worker 6</div>
+            <div class="worker-meta"><span class="proxy">IP-F</span><span class="model">gpt-4o-mini</span></div>
+            <span class="worker-status-badge badge-idle">idle</span>
+          </div>
+          <div class="worker-terminal">
+            <div><span class="prompt">$</span> <span class="cmd">opencode</span></div>
+            <div><span class="info">Using model: gpt-4o-mini (free tier)</span></div>
+            <div><span class="info">Proxy: socks5://proxy-f:1080</span></div>
+            <div style="margin-top:4px"><span class="prompt">></span> <span class="cursor-blink">█</span> <span class="output" style="font-size:10px;color:var(--text-dim)">standby</span></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="leader-panel">
+      <div class="leader-header">
+        <div class="leader-icon">L</div>
+        <div class="leader-info">
+          <div class="leader-name">Leader — Kiro AI</div>
+          <div class="leader-model">anthropic:claude-opus-4</div>
+        </div>
+        <div class="leader-status-dot" title="Connected"></div>
+      </div>
+      <div class="leader-terminal" id="leaderTerminal">
+        <div class="user-msg">Buat fitur login lengkap untuk aplikasi Express.js ini. Database pakai PostgreSQL.</div>
+        
+        <div class="ai-msg" style="margin-top:12px">
+          <span style="color:var(--purple);font-weight:600">Leader:</span> Baik, saya akan memecah menjadi 7 sub-task dan mendelegasikan ke Workers:
+        </div>
+
+        <div class="task-block">
+          <div class="task-line"><span class="task-num">Task 1:</span> Buat migration tabel users (email, password, name) <span style="color:var(--green)">→ W1</span></div>
+          <div class="task-line"><span class="task-num">Task 2:</span> Buat model User dengan bcrypt hashing <span style="color:var(--green)">→ W3</span></div>
+          <div class="task-line"><span class="task-num">Task 3:</span> Buat AuthController (login/register/logout) <span style="color:var(--green)">→ W1</span></div>
+          <div class="task-line"><span class="task-num">Task 4:</span> Buat halaman login (EJS + CSS dark theme) <span style="color:var(--green)">→ W2</span></div>
+          <div class="task-line"><span class="task-num">Task 5:</span> Unit test auth <span style="color:var(--text-dim)">→ menunggu</span></div>
+          <div class="task-line"><span class="task-num">Task 6:</span> Integration test <span style="color:var(--text-dim)">→ menunggu</span></div>
+          <div class="task-line"><span class="task-num">Task 7:</span> Review & cleanup <span style="color:var(--text-dim)">→ menunggu</span></div>
+        </div>
+
+        <div class="ai-msg" style="color:var(--text-muted);font-size:11px">
+          Mendelegasikan task 1 & 2 (paralel, tidak ada dependency)...
+        </div>
+        <div class="ai-msg" style="color:var(--green);font-size:11px;margin-top:4px">
+          ✓ Task 1 didelegasikan ke Worker 1
+        </div>
+        <div class="ai-msg" style="color:var(--green);font-size:11px">
+          ✓ Task 2 didelegasikan ke Worker 3
+        </div>
+
+        <div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border)">
+          <div class="ai-msg" style="color:var(--text-muted);font-size:11px">
+            ⏳ Menunggu Worker 1 & 3 selesai...
+          </div>
+        </div>
+
+        <div class="report-block" style="margin-top:8px">
+          <div class="report-title">📋 LAPORAN WORKER 3</div>
+          <div class="report-line">Task #2: Model User + bcrypt</div>
+          <div class="report-line">Status: <span class="success">SELESAI ✓</span></div>
+          <div class="report-line">File: <span class="file">src/models/User.ts</span> (78 lines)</div>
+          <div class="report-line">Compile: <span class="success">OK</span></div>
+        </div>
+
+        <div class="ai-msg" style="margin-top:8px">
+          <span style="color:var(--purple);font-weight:600">Leader:</span> 
+          Worker 3 selesai task #2. Saya review hasilnya:
+        </div>
+        <div class="ai-msg">
+          <span class="review-ok">✅ Model User: struktur benar, bcrypt imported</span><br>
+          <span class="review-ok">✅ Validasi email: ada</span><br>
+          <span class="review-ok">✅ Password hashing: bcrypt.hash(password, 12)</span><br>
+          <span style="color:var(--text-muted)">Task #2 approved. Menunggu task lainnya...</span>
+        </div>
+
+        <div style="margin-top:8px">
+          <div class="ai-msg" style="color:var(--accent);font-size:11px">
+            ⏳ Worker 1 sedang mengerjakan task #3 (AuthController)...
+            <span class="typing-indicator"><span></span><span></span><span></span></span>
+          </div>
+        </div>
+      </div>
+      <div class="leader-input">
+        <input type="text" placeholder="Ketik perintah untuk Leader..." id="leaderInput">
+        <button onclick="sendToLeader()">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <div class="status-item">
+      <span class="dot" style="background:var(--green);box-shadow:0 0 6px var(--green)"></span>
+      Leader: <span class="val">Kiro AI</span>
+    </div>
+    <div class="status-item">
+      Workers: <span class="val">2/6 busy</span>
+    </div>
+    <div class="status-item">
+      Proxies: <span class="val" style="color:var(--green)">6/6 ✓</span>
+    </div>
+    <div class="status-item">
+      Uptime: <span class="val" id="uptime">00:05:24</span>
+    </div>
+    <div class="status-progress">
+      Tasks: <span class="val" style="margin:0 4px">3/7</span>
+      <div class="mini-bar"><div class="mini-bar-fill" style="width:43%"></div></div>
+      <span style="color:var(--accent);font-weight:600">43%</span>
+    </div>
+  </div>
+</div>
+
+<script>
+let seconds = 324;
+setInterval(() => {
+  seconds++;
+  const h = String(Math.floor(seconds/3600)).padStart(2,'0');
+  const m = String(Math.floor((seconds%3600)/60)).padStart(2,'0');
+  const s = String(seconds%60).padStart(2,'0');
+  document.getElementById('uptime').textContent = `${h}:${m}:${s}`;
+}, 1000);
+
+function sendToLeader() {
+  const input = document.getElementById('leaderInput');
+  if (!input.value.trim()) return;
+  const terminal = document.getElementById('leaderTerminal');
+  const msg = document.createElement('div');
+  msg.className = 'user-msg';
+  msg.textContent = input.value;
+  terminal.appendChild(msg);
+  terminal.scrollTop = terminal.scrollHeight;
+  input.value = '';
+}
+document.getElementById('leaderInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') sendToLeader();
+});
+</script>
+</body>
+</html>

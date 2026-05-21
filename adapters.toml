@@ -1,0 +1,63 @@
+# adapters.toml — daftar adapter bawaan
+
+# ─── CLI Adapters (Phase 1) ──────────────────────────────────────────────────
+
+[[adapter]]
+id   = "opencode"
+type = "cli"
+bin  = "opencode"
+desc = "OpenCode CLI — free AI coding assistant"
+
+[[adapter]]
+id   = "aider"
+type = "cli"
+bin  = "aider"
+desc = "Aider — AI pair programming in terminal"
+
+[[adapter]]
+id   = "claude-cli"
+type = "cli"
+bin  = "claude"
+desc = "Claude CLI — official Anthropic CLI"
+
+[[adapter]]
+id   = "codex-cli"
+type = "cli"
+bin  = "codex"
+desc = "Codex CLI — OpenAI terminal tool"
+
+[[adapter]]
+id   = "cli-generic"
+type = "cli"
+bin  = "cmd.exe"
+desc = "Generic shell (cmd, powershell, bash)"
+
+# ─── GUI Adapters (Phase 2) ──────────────────────────────────────────────────
+
+[[adapter]]
+id           = "cursor"
+type         = "gui"
+bin          = "Cursor.exe"
+window_title = "Cursor"
+desc         = "Cursor — AI-first code editor"
+
+[[adapter]]
+id           = "kiro"
+type         = "gui"
+bin          = "Kiro.exe"
+window_title = "Kiro"
+desc         = "Kiro — AI IDE by Amazon"
+
+[[adapter]]
+id           = "vscode"
+type         = "gui"
+bin          = "Code.exe"
+window_title = "Visual Studio Code"
+desc         = "VS Code + Copilot"
+
+[[adapter]]
+id           = "windsurf"
+type         = "gui"
+bin          = "Windsurf.exe"
+window_title = "Windsurf"
+desc         = "Windsurf — AI code editor"
