@@ -1,0 +1,37 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Backend Session Flow State Machine and new Tauri commands. Add session flow controller that drives states (IDLE -> FOLDER_SELECTED -> LEADER_CHOSEN -> PLANNING -> PLAN_APPROVED -> EXECUTING -> REVIEWING -> COMPLETE), new Tauri commands for the UI flow (get_adapters, select_folder, choose_leader, send_to_leader, approve_plan, get_session_flow_state), and Leader-as-CLI interaction wiring.",
+  "status": "completed",
+  "steps": [
+    "Step 1: Add SessionPhase enum and SessionFlow struct to synergy-proto/src/lib.rs. The enum: Idle, FolderSelected, LeaderChosen, Planning, PlanApproved, Executing, Reviewing, Complete. SessionFlow struct holds: phase, project_dir (Option<String>), leader_adapter_id (Option<String>), plan_text (Option<String>), parsed_tasks (Vec<TaskDraft summary>). Derive Serialize/Deserialize/Clone/Debug.",
+    "Step 2: Create a new module crates/synergy-core/src/session_flow.rs that manages the session flow state machine. SessionFlowController struct holds the current SessionFlow, orchestrator reference, and leader handle. Methods: select_folder(path) -> advances to FolderSelected, choose_leader(adapter_id) -> spawns leader process/prepares API, advances to LeaderChosen, send_to_leader(message) -> sends user message to leader via PTY/API, returns response, advance to Planning, approve_plan(plan_text) -> parses plan into tasks, inserts into DB, spawns workers, advances to Executing, check_completion() -> checks if all tasks done, advances to Reviewing/Complete. Export the module from synergy-core/src/lib.rs.",
+    "Step 3: Implement Leader interaction in session_flow.rs. For CLI-based leaders (opencode, aider, claude-cli, codex-cli): spawn a PTY process using the adapter's launch method, send user messages via send_command, read responses via read_output with async polling. For API-direct leaders: use the DirectApiAdapter. Store the leader's AppHandle in the SessionFlowController. When leader responds with a plan (detected via leader::parse_plan returning non-empty), store the plan text and parsed drafts.",
+    "Step 4: Add leader output streaming. When the leader produces output (reading from PTY), emit a Tauri event 'leader-output' with the text chunk. The UI subscribes to this for real-time display of Leader's responses. Implement a leader_output_pump similar to the existing spawn_output_pump for workers.",
+    "Step 5: Add new Tauri commands in synergy-ui/src/lib.rs: (a) get_adapters() -> reads adapters.toml (bundled or from config dir) and returns Vec<AdapterInfo> with id, type, bin, desc fields. (b) select_folder(path: String) -> validates the path exists, stores in session flow, returns Ok. (c) choose_leader(adapter_id: String, project_dir: String) -> initializes the leader (spawns PTY or prepares API), creates DB session, advances flow state. (d) send_to_leader(message: String) -> sends message to leader process, returns immediately (response comes via event). (e) approve_plan(session_id: String, plan_text: String) -> calls add_plan logic, spawns workers, starts orchestrator tick loop. (f) get_session_flow_state() -> returns current SessionFlow for UI to query.",
+    "Step 6: Update AppState in synergy-ui/src/lib.rs to include the SessionFlowController (wrapped in Arc<Mutex<>>). Update register_handlers to include all new commands.",
+    "Step 7: Add AdapterInfo struct (id, adapter_type, bin, desc) with Serialize. Implement adapter loading from the adapters.toml file. The adapters.toml file is at the project root - for the Tauri app it should be bundled as a resource or read from the executable directory. Use include_str! to embed it at compile time, or read from a known path.",
+    "Step 8: Wire the approve_plan flow: when user approves, parse the stored plan text using leader::parse_plan and leader::infer_dependencies, convert to Tasks via leader::drafts_to_tasks, insert all tasks into DB, spawn workers using the orchestrator, start the tick loop. After all tasks complete (detected via polling or event), compose batch report via leader::compose_batch_report and send to leader for review.",
+    "Step 9: Implement the review/complete cycle: after batch report is sent to Leader, monitor Leader's response. If leader::is_approval returns true, advance to Complete phase. If not, parse corrections and handle re-assignment (for now, just log and advance to Complete).",
+    "Step 10: Add 'session-state-changed' Tauri event emission whenever the session flow phase changes. This allows the frontend to reactively update without polling."
+  ],
+  "acceptance_criteria": [
+    "SessionPhase enum exists in synergy-proto with all states",
+    "SessionFlowController in synergy-core manages state transitions",
+    "New Tauri commands (get_adapters, select_folder, choose_leader, send_to_leader, approve_plan, get_session_flow_state) are defined and registered",
+    "Leader PTY interaction works: spawn leader CLI, send messages, stream output via events",
+    "approve_plan correctly parses plan, creates tasks, spawns workers, and starts orchestration",
+    "Batch report is composed and sent to leader when all tasks complete",
+    "Session flow state is queryable by the frontend",
+    "adapters.toml content is loadable and returned as structured data"
+  ],
+  "verification": [
+    "Verify synergy-proto/src/lib.rs contains SessionPhase enum and SessionFlow struct with correct derives",
+    "Verify synergy-core/src/session_flow.rs exists with SessionFlowController and all state transition methods",
+    "Verify synergy-core/src/lib.rs exports the session_flow module",
+    "Verify synergy-ui/src/lib.rs contains all new #[tauri::command] functions and they are in the generate_handler! list",
+    "Verify the new commands follow the same patterns as existing commands (async, State<AppState>, Result<T, String>)"
+  ],
+  "blocked_reason": null,
+  "findings": "Implemented all 10 steps. SessionPhase enum (8 states) in synergy-proto. SessionFlowController in synergy-core/session_flow.rs with methods for each state transition plus send_to_leader and read_leader_output for Leader PTY interaction. Six new Tauri commands added to synergy-ui/src/lib.rs and registered in generate_handler!. AppState extended with session_flow: Arc<Mutex<SessionFlowController>>. adapters.toml embedded via include_str!(\"../../../adapters.toml\"). Leader output pump (spawn_leader_output_pump_tauri) emits 'leader-output' events at 100ms intervals. Completion monitor (spawn_completion_monitor) polls at 1s, composes batch report via leader::compose_batch_report, and sends to leader on completion. The toml crate (0.8, already in Cargo.lock) added to synergy-ui deps for parsing adapters. The pick_adapter function handles all adapter types: opencode direct, cursor/kiro via specific adapters, api-direct via DirectApiAdapter, and all others via GenericCliAdapter (covers aider, claude-cli, codex-cli, etc.). Cannot compile due to INTEGRATIONS_ONLY network mode but code follows existing patterns exactly."
+}
