@@ -1,0 +1,33 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "End-to-end wiring and integration: connect frontend UI screens to backend commands, ensure Tauri events flow correctly, update Tauri capabilities/permissions for new commands, and ensure the full flow works from folder selection through task completion.",
+  "status": "completed",
+  "steps": [
+    "Step 1: Update crates/synergy-app/capabilities/default.json to add permissions for dialog (folder picker), fs (file system access for project dir validation), and any additional Tauri plugin permissions needed. Add 'dialog:default' for the folder picker dialog.",
+    "Step 2: Verify and fix the frontend-backend contract. Ensure every invoke() call in the frontend index.html matches a #[tauri::command] function name and argument structure in synergy-ui/src/lib.rs. Key mappings: invoke('get_adapters') -> get_adapters(), invoke('select_folder', {path}) -> select_folder(path), invoke('choose_leader', {adapter_id, project_dir}) -> choose_leader(adapter_id, project_dir), invoke('send_to_leader', {message}) -> send_to_leader(message), invoke('approve_plan', {session_id, plan_text}) -> approve_plan(session_id, plan_text), invoke('get_session_flow_state') -> get_session_flow_state(), invoke('get_state', {session_id}) -> get_state(session_id), invoke('send_worker_command', {worker_id, command}) -> send_worker_command(worker_id, command).",
+    "Step 3: Add Tauri event listeners in the frontend for: 'worker-output' (route to correct xterm terminal), 'leader-output' (append to leader chat), 'session-state-changed' (update current screen/phase). Ensure listen() calls use the correct Tauri 2.0 event API: window.__TAURI__.event.listen(eventName, callback).",
+    "Step 4: Implement the automatic flow trigger in the backend: when choose_leader is called, it should automatically initialize the database, create a project entry, create a session, and prepare the leader. When approve_plan is called, it should automatically spawn workers and start the tick loop. This eliminates the need for the frontend to call init_session separately.",
+    "Step 5: Add error handling and loading states to the frontend. When waiting for Leader response, show a typing indicator. When an invoke() call fails, show an error toast/notification. When workers are spawning, show a loading state in the worker grid.",
+    "Step 6: Ensure the status bar in the executing screen updates in real-time by polling get_state every 1 second and updating: worker count (busy/total), task progress (done/total + percentage), leader status, and proxy count.",
+    "Step 7: Add the Tauri dialog plugin to the app dependencies if not already present. In crates/synergy-app/Cargo.toml, add tauri-plugin-dialog dependency. In main.rs, register the dialog plugin: .plugin(tauri_plugin_dialog::init()). Note: since we cannot download crates, add the dependency declaration but note it needs to be in Cargo.lock already. If tauri-plugin-dialog is not in Cargo.lock, use a JS-based fallback (prompt user to type path manually).",
+    "Step 8: Create a simple integration test scenario in the mock mode: verify that clicking through Welcome -> Leader Select -> Planning -> type message -> approve plan -> see executing screen works entirely in mock mode (no Tauri backend). This validates the frontend flow logic independently."
+  ],
+  "acceptance_criteria": [
+    "Capabilities file includes required permissions for all new commands",
+    "Every frontend invoke() call has a matching backend command with correct argument shapes",
+    "Tauri events (worker-output, leader-output, session-state-changed) are properly listened to in frontend",
+    "The flow works end-to-end: folder select -> leader choice -> chat -> plan approval -> execution dashboard",
+    "Loading states and error handling exist in the frontend",
+    "Status bar updates in real-time during execution",
+    "Mock mode demonstrates the full flow without backend"
+  ],
+  "verification": [
+    "Read crates/synergy-app/capabilities/default.json and verify it has the necessary permissions",
+    "Read the frontend index.html and verify all invoke() calls match registered commands",
+    "Read synergy-ui/src/lib.rs and verify all commands are in the generate_handler! macro",
+    "Verify the frontend mock mode simulates the complete flow with fake data"
+  ],
+  "blocked_reason": null,
+  "findings": "No Rust toolchain available in sandbox - verification is syntax/structure only per context.json. All frontend invoke() calls verified to match backend command names and argument shapes. The AdapterInfo struct uses serde rename so 'adapter_type' field serializes as 'type' in JSON - frontend usage of a.type is correct. Mock mode now accurately reflects backend return types. The toml dependency was already present in synergy-ui/Cargo.toml. The include_str path for adapters.toml resolves correctly (3 levels up from src/ reaches workspace root)."
+}

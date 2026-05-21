@@ -1,5 +1,63 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+// ─── Session Flow Types ─────────────────────────────────────────────────────
+
+/// Represents the current phase of the session flow state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionPhase {
+    Idle,
+    FolderSelected,
+    LeaderChosen,
+    Planning,
+    PlanApproved,
+    Executing,
+    Reviewing,
+    Complete,
+}
+
+impl Default for SessionPhase {
+    fn default() -> Self {
+        Self::Idle
+    }
+}
+
+/// Snapshot of the session flow state, queryable by the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionFlowState {
+    pub phase: SessionPhase,
+    pub project_dir: Option<String>,
+    pub leader_adapter_id: Option<String>,
+    pub session_id: Option<String>,
+    pub plan_text: Option<String>,
+    pub task_count: u32,
+}
+
+impl Default for SessionFlowState {
+    fn default() -> Self {
+        Self {
+            phase: SessionPhase::Idle,
+            project_dir: None,
+            leader_adapter_id: None,
+            session_id: None,
+            plan_text: None,
+            task_count: 0,
+        }
+    }
+}
+
+/// Metadata about a supported adapter, parsed from adapters.toml.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterInfo {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub adapter_type: String,
+    pub bin: String,
+    pub desc: String,
+}
+
+// ─── Task & Message Types ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
