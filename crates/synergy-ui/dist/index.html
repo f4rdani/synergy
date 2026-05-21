@@ -86,42 +86,65 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .plan-task-item .task-text{color:var(--text)}
 .plan-actions{display:flex;gap:12px;margin-top:8px}
 
-/* Executing */
+/* Executing - VS Code-like layout */
 .executing-screen{flex-direction:row;background:var(--bg)}
-.progress-panel{width:200px;min-width:160px;background:var(--bg-surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
-.progress-header{padding:12px 14px;border-bottom:1px solid var(--border);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-sub)}
-.progress-section{padding:10px;flex:1;overflow-y:auto}
-.exec-task-list{list-style:none}
-.exec-task-item{display:flex;align-items:flex-start;gap:6px;padding:4px 6px;font-size:11px;line-height:1.4;border-radius:4px}
-.exec-task-item:hover{background:rgba(255,255,255,.03)}
-.exec-task-icon{flex-shrink:0;width:14px;text-align:center;font-size:10px}
-.task-done .exec-task-icon{color:var(--green)}
-.task-running .exec-task-icon{color:var(--accent)}
-.task-pending .exec-task-icon{color:var(--text-dim)}
-.exec-task-text{color:var(--text)}
-.task-done .exec-task-text{color:var(--text-dim);text-decoration:line-through}
-.progress-bar-container{margin:10px 0}
-.progress-bar-label{display:flex;justify-content:space-between;font-size:10px;color:var(--text-sub);margin-bottom:4px}
-.progress-bar{height:5px;background:var(--border);border-radius:3px;overflow:hidden}
-.progress-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--teal));border-radius:3px;transition:width .5s}
-.worker-status-section{margin-top:8px}
-.worker-status-title{font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:6px;padding:0 6px}
-.worker-mini{display:flex;align-items:center;gap:5px;padding:2px 6px;font-size:10px;font-family:'JetBrains Mono',monospace}
-.worker-mini-dot{width:5px;height:5px;border-radius:50%;flex-shrink:0}
-.worker-mini-dot.wk-active{background:var(--green);box-shadow:0 0 4px var(--green)}
-.worker-mini-dot.wk-working{background:var(--accent);box-shadow:0 0 4px var(--accent)}
-.worker-mini-dot.wk-idle{background:var(--text-dim)}
-.worker-mini-label{color:var(--text-sub)}
-.worker-mini-task{margin-left:auto;color:var(--text-dim);font-size:9px}
-.log-section{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
-.log-title{font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px;padding:0 6px}
-.log-entry{padding:2px 6px;font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--text-dim);line-height:1.4}
 
-/* Workers panel center */
-.workers-panel{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border)}
-.workers-panel-header{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px}
-.workers-panel-title{font-weight:600;color:var(--text);display:flex;align-items:center;gap:8px}
-.workers-panel-title .badge{background:var(--accent);color:var(--bg-crust);font-size:9px;padding:2px 7px;border-radius:8px;font-weight:600}
+/* Activity Bar (far left, 48px) */
+.activity-bar{width:48px;min-width:48px;background:var(--bg-crust);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding-top:8px;gap:4px}
+.activity-icon{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border-radius:8px;cursor:pointer;color:var(--text-dim);transition:all .15s;position:relative}
+.activity-icon:hover{color:var(--text-sub);background:rgba(255,255,255,.04)}
+.activity-icon.active{color:var(--text)}
+.activity-icon.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:2px;border-radius:0 2px 2px 0;background:var(--accent)}
+.activity-icon svg{width:20px;height:20px}
+.activity-spacer{flex:1}
+
+/* Sidebar (220px, VS Code explorer) */
+.sidebar{width:220px;min-width:180px;background:var(--bg-surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow-y:auto}
+.sidebar-header{padding:10px 14px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--text-sub);border-bottom:1px solid var(--border)}
+.sidebar-section{display:flex;flex-direction:column}
+.section-title{display:flex;align-items:center;gap:6px;padding:6px 14px;font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-dim);cursor:pointer;user-select:none}
+.section-title:hover{color:var(--text-sub);background:rgba(255,255,255,.02)}
+.section-title::before{content:"";width:0;height:0;border-left:4px solid var(--text-dim);border-top:3px solid transparent;border-bottom:3px solid transparent;transition:transform .15s}
+.section-title.expanded::before{transform:rotate(90deg)}
+.section-content{padding:2px 0}
+.sidebar-task-item{display:flex;align-items:center;gap:6px;padding:3px 14px 3px 24px;font-size:11px;line-height:1.5;cursor:default}
+.sidebar-task-item:hover{background:rgba(255,255,255,.03)}
+.sidebar-task-icon{flex-shrink:0;width:14px;text-align:center;font-size:10px}
+.stask-done .sidebar-task-icon{color:var(--green)}
+.stask-running .sidebar-task-icon{color:var(--accent)}
+.stask-pending .sidebar-task-icon{color:var(--text-dim)}
+.sidebar-task-text{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.stask-done .sidebar-task-text{color:var(--text-dim);text-decoration:line-through}
+.sidebar-task-worker{font-size:9px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;flex-shrink:0}
+.sidebar-worker-item{display:flex;align-items:center;gap:6px;padding:3px 14px 3px 24px;font-size:11px}
+.sidebar-worker-item:hover{background:rgba(255,255,255,.03)}
+.sidebar-worker-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.sidebar-worker-dot.sw-working{background:var(--accent);box-shadow:0 0 4px var(--accent)}
+.sidebar-worker-dot.sw-done{background:var(--green);box-shadow:0 0 4px var(--green)}
+.sidebar-worker-dot.sw-idle{background:var(--text-dim)}
+.sidebar-worker-name{color:var(--text-sub);font-weight:500}
+.sidebar-worker-task{font-size:9px;color:var(--text-dim);margin-left:auto;max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar-progress{padding:10px 14px;border-top:1px solid var(--border)}
+.sidebar-progress-label{display:flex;justify-content:space-between;font-size:10px;color:var(--text-sub);margin-bottom:4px}
+.sidebar-progress-bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.sidebar-progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--teal));border-radius:2px;transition:width .5s}
+.sidebar-log-section{padding:6px 0;border-top:1px solid var(--border)}
+.sidebar-log-entry{padding:2px 14px 2px 24px;font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--text-dim);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* Editor Area (center, flex) */
+.editor-area{flex:1;display:flex;flex-direction:column;min-width:0;border-right:1px solid var(--border)}
+.editor-tabs{display:flex;align-items:center;height:35px;background:var(--bg-crust);border-bottom:1px solid var(--border);overflow-x:auto;overflow-y:hidden}
+.editor-tabs::-webkit-scrollbar{height:0}
+.editor-tab{display:flex;align-items:center;gap:6px;padding:0 14px;height:100%;font-size:11px;color:var(--text-dim);border-right:1px solid var(--border);cursor:pointer;white-space:nowrap;transition:all .12s;position:relative}
+.editor-tab:hover{color:var(--text-sub);background:var(--bg-surface)}
+.editor-tab.active{color:var(--text);background:var(--bg)}
+.editor-tab.active::after{content:"";position:absolute;top:0;left:0;right:0;height:1px;background:var(--accent)}
+.editor-tab-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.editor-tab-dot.etd-working{background:var(--accent);box-shadow:0 0 4px var(--accent);animation:pulse 1.5s ease infinite}
+.editor-tab-dot.etd-done{background:var(--green)}
+.editor-tab-dot.etd-idle{background:var(--text-dim)}
+.editor-tab-label{font-weight:500}
+.editor-tab-task{font-size:9px;color:var(--text-dim);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .workers-grid{flex:1;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr 1fr;gap:1px;background:var(--border);overflow:hidden}
 .worker-cell{display:flex;flex-direction:column;background:var(--bg);overflow:hidden}
 .worker-header-row{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:10px}
@@ -379,60 +402,94 @@ function renderPlanReview() {
 
 function renderExecuting() {
   return `
-    <div class="progress-panel">
-      ${renderProgressPanel()}
-    </div>
-    <div class="workers-panel">
-      <div class="workers-panel-header">
-        <div class="workers-panel-title">Workers <span class="badge">${APP.workerCount} instances</span></div>
+    <!-- Activity Bar (far left) -->
+    <div class="activity-bar">
+      <div class="activity-icon active" title="Tasks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/><rect x="9" y="3" width="6" height="4" rx="1"/><path d="M9 14l2 2 4-4"/></svg>
       </div>
+      <div class="activity-icon" title="Workers">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>
+      </div>
+      <div class="activity-icon" title="Git">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 3v6"/><path d="M12 15v6"/><circle cx="6" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><path d="M6 8v1a5 5 0 005 5h2a5 5 0 005-5V8"/></svg>
+      </div>
+      <div class="activity-spacer"></div>
+      <div class="activity-icon" title="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      </div>
+    </div>
+
+    <!-- Sidebar (task explorer) -->
+    <div class="sidebar">
+      <div class="sidebar-header">EXPLORER</div>
+      ${renderSidebar()}
+    </div>
+
+    <!-- Editor Area (worker terminals) -->
+    <div class="editor-area">
+      <div class="editor-tabs">${renderEditorTabs()}</div>
       <div class="workers-grid" id="workers-grid">
         ${renderWorkerCells()}
       </div>
     </div>
+
+    <!-- Right Panel (Leader) -->
     <div class="leader-panel">
       ${renderLeaderPanel()}
     </div>
   `;
 }
 
-function renderProgressPanel() {
+function renderSidebar() {
   const doneCount = APP.execTasks.filter(t => t.status === 'done').length;
   const total = APP.execTasks.length || 0;
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
-  const taskItems = APP.execTasks.map(t => {
-    const cls = t.status === 'done' ? 'task-done' : t.status === 'running' ? 'task-running' : 'task-pending';
+  const taskItems = APP.execTasks.map((t, i) => {
+    const cls = t.status === 'done' ? 'stask-done' : t.status === 'running' ? 'stask-running' : 'stask-pending';
     const icon = t.status === 'done' ? '&#10003;' : t.status === 'running' ? '&#9881;' : '&#9675;';
-    return `<li class="exec-task-item ${cls}"><span class="exec-task-icon">${icon}</span><span class="exec-task-text">${escapeHtml(t.title)}</span></li>`;
+    const wLabel = t.worker_id !== null && t.worker_id !== undefined ? 'W' + (t.worker_id + 1) : '';
+    return `<div class="sidebar-task-item ${cls}"><span class="sidebar-task-icon">${icon}</span><span class="sidebar-task-text">${escapeHtml(t.title)}</span><span class="sidebar-task-worker">${wLabel}</span></div>`;
   }).join('');
 
-  const workerMinis = APP.workers.map((w, i) => {
-    const dotCls = w.status === 'working' ? 'wk-working' : w.status === 'done' ? 'wk-active' : 'wk-idle';
-    const taskLbl = w.current_task ? w.current_task : 'idle';
-    return `<div class="worker-mini"><span class="worker-mini-dot ${dotCls}"></span><span class="worker-mini-label">W${i+1}</span><span class="worker-mini-task">${taskLbl}</span></div>`;
+  const workerItems = APP.workers.map((w, i) => {
+    const dotCls = w.status === 'working' ? 'sw-working' : w.status === 'done' ? 'sw-done' : 'sw-idle';
+    const taskLbl = w.current_task || 'idle';
+    return `<div class="sidebar-worker-item"><span class="sidebar-worker-dot ${dotCls}"></span><span class="sidebar-worker-name">Worker ${i+1}</span><span class="sidebar-worker-task">${escapeHtml(taskLbl)}</span></div>`;
   }).join('');
 
-  const logEntries = APP.logs.slice(-8).map(l => `<div class="log-entry">${l}</div>`).join('');
+  const logEntries = APP.logs.slice(-6).map(l => `<div class="sidebar-log-entry">${l}</div>`).join('');
 
   return `
-    <div class="progress-header">Progress</div>
-    <div class="progress-section">
-      <div class="progress-bar-container">
-        <div class="progress-bar-label"><span>Progress</span><span>${doneCount}/${total} (${pct}%)</span></div>
-        <div class="progress-bar"><div class="progress-bar-fill" style="width:${pct}%"></div></div>
-      </div>
-      <ul class="exec-task-list">${taskItems}</ul>
-      <div class="worker-status-section">
-        <div class="worker-status-title">Workers</div>
-        ${workerMinis}
-      </div>
-      <div class="log-section">
-        <div class="log-title">Activity</div>
-        ${logEntries}
-      </div>
+    <div class="sidebar-section">
+      <div class="section-title expanded">TASKS (${total})</div>
+      <div class="section-content">${taskItems}</div>
+    </div>
+    <div class="sidebar-section">
+      <div class="section-title expanded">WORKERS (${APP.workers.length || APP.workerCount})</div>
+      <div class="section-content">${workerItems}</div>
+    </div>
+    <div class="sidebar-progress">
+      <div class="sidebar-progress-label"><span>Progress</span><span>${doneCount}/${total} (${pct}%)</span></div>
+      <div class="sidebar-progress-bar"><div class="sidebar-progress-fill" style="width:${pct}%"></div></div>
+    </div>
+    <div class="sidebar-section sidebar-log-section">
+      <div class="section-title expanded">ACTIVITY LOG</div>
+      <div class="section-content">${logEntries}</div>
     </div>
   `;
+}
+
+function renderEditorTabs() {
+  let tabs = '';
+  for (let i = 0; i < APP.workerCount; i++) {
+    const w = APP.workers[i] || { status: 'idle', current_task: '' };
+    const dotCls = w.status === 'working' ? 'etd-working' : w.status === 'done' ? 'etd-done' : 'etd-idle';
+    const isActive = i === 0 ? ' active' : '';
+    const taskLbl = w.current_task || '';
+    tabs += `<div class="editor-tab${isActive}" data-worker-tab="${i}"><span class="editor-tab-dot ${dotCls}"></span><span class="editor-tab-label">Worker ${i+1}</span>${taskLbl ? '<span class="editor-tab-task">' + escapeHtml(taskLbl) + '</span>' : ''}</div>`;
+  }
+  return tabs;
 }
 
 function renderWorkerCells() {
@@ -786,9 +843,13 @@ function checkComplete() {
 
 // --- Partial DOM updates for executing screen ---
 function updateProgressPanel() {
-  const panel = document.querySelector('.progress-panel');
-  if (!panel) return;
-  panel.innerHTML = renderProgressPanel();
+  const sidebar = document.querySelector('.sidebar');
+  if (!sidebar) return;
+  // Keep the sidebar header, replace the rest
+  const header = sidebar.querySelector('.sidebar-header');
+  if (header) {
+    sidebar.innerHTML = '<div class="sidebar-header">EXPLORER</div>' + renderSidebar();
+  }
 }
 
 function updateWorkerHeaders() {
@@ -799,6 +860,11 @@ function updateWorkerHeaders() {
     const dot = document.querySelector(`#workers-grid .worker-cell:nth-child(${i+1}) .worker-dot`);
     if (dot) {
       dot.className = 'worker-dot ' + (w.status === 'working' ? 'blue' : w.status === 'done' ? 'green' : 'gray');
+    }
+    // Update editor tab dots
+    const tab = document.querySelector(`.editor-tab[data-worker-tab="${i}"] .editor-tab-dot`);
+    if (tab) {
+      tab.className = 'editor-tab-dot ' + (w.status === 'working' ? 'etd-working' : w.status === 'done' ? 'etd-done' : 'etd-idle');
     }
   }
 }
