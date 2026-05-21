@@ -561,6 +561,11 @@ function handleFolderGo() {
 
 async function loadAdaptersAndGo() {
   try {
+    await invoke('select_folder', { path: APP.projectDir });
+  } catch (e) {
+    // non-fatal in mock mode
+  }
+  try {
     APP.adapters = await invoke('get_adapters');
   } catch (e) {
     APP.adapters = [];
@@ -574,7 +579,9 @@ async function handleAdapterSelect(adapterId) {
   APP.selectedAdapter = adapter;
 
   try {
-    await invoke('choose_leader', { adapter_id: adapterId, project_dir: APP.projectDir });
+    const result = await invoke('choose_leader', { adapter_id: adapterId, project_dir: APP.projectDir });
+    // Backend returns session_id string directly
+    if (typeof result === 'string') APP.sessionId = result;
   } catch (e) {
     // non-fatal in mock mode
   }
@@ -589,12 +596,16 @@ async function handleChatSend() {
   const text = input.value.trim();
   input.value = '';
   APP.messages.push({ role: 'user', content: text });
+  APP.messages.push({ role: 'system', content: 'Leader is thinking...', streaming: true, typing: true });
   render();
 
   try {
     await invoke('send_to_leader', { message: text });
   } catch (e) {
-    // handled by event listener
+    // Remove typing indicator on error, show error
+    APP.messages = APP.messages.filter(m => !m.typing);
+    APP.messages.push({ role: 'system', content: 'Error: Failed to send message to Leader.' });
+    render();
   }
 }
 
@@ -603,11 +614,17 @@ async function handleApprovePlan() {
   APP.startTime = Date.now();
   APP.leaderMessages = [{ role: 'system', content: 'Plan approved. Distributing tasks to Workers...' }];
   APP.logs = [];
+  // Initialize workers array with idle state
+  APP.workers = Array.from({ length: APP.workerCount }, (_, i) => ({
+    id: i, status: 'idle', proxy_addr: `socks5://proxy-${i+1}:1080`, current_task: null
+  }));
 
   try {
-    await invoke('approve_plan', { session_id: APP.sessionId, plan_text: APP.planText });
+    const result = await invoke('approve_plan', { session_id: APP.sessionId, plan_text: APP.planText });
+    if (result) APP.logs.push('Workers spawned: ' + (Array.isArray(result) ? result.length : 0) + ' tasks queued');
   } catch (e) {
     // proceed anyway for mock
+    APP.logs.push('Running in mock mode');
   }
 
   goTo('executing');
@@ -659,7 +676,6 @@ function initExecutingScreen() {
       initTerminal(i);
     }
   });
-  subscribeEvents();
   startPolling();
 }
 
@@ -697,6 +713,9 @@ async function subscribeEvents() {
 
   await listen('leader-output', ev => {
     const p = ev.payload || ev;
+    // Remove typing indicator if present
+    APP.messages = APP.messages.filter(m => !m.typing);
+
     if (APP.screen === 'planning') {
       // Accumulate assistant response
       const lastMsg = APP.messages[APP.messages.length - 1];
@@ -715,6 +734,17 @@ async function subscribeEvents() {
         APP.leaderMessages.push({ role: 'assistant', content: p.chunk, streaming: true });
       }
       updateLeaderChat();
+    }
+  });
+
+  await listen('session-state-changed', ev => {
+    const p = ev.payload || ev;
+    if (p.phase === 'reviewing') {
+      APP.leaderMessages.push({ role: 'system', content: 'All tasks complete. Leader is reviewing the results...' });
+      if (APP.screen === 'executing') updateLeaderChat();
+    } else if (p.phase === 'complete') {
+      if (APP.pollInterval) { clearInterval(APP.pollInterval); APP.pollInterval = null; }
+      setTimeout(() => goTo('complete'), 1000);
     }
   });
 }
@@ -801,6 +831,10 @@ const mockState = { session: null, tasks: [], workers: [], tickTimer: null };
 async function mockInvoke(cmd, args = {}) {
   await new Promise(r => setTimeout(r, 50));
 
+  if (cmd === 'select_folder') {
+    return;
+  }
+
   if (cmd === 'get_adapters') {
     return [
       { id: 'opencode', type: 'cli', desc: 'OpenCode CLI - free AI coding assistant' },
@@ -817,7 +851,7 @@ async function mockInvoke(cmd, args = {}) {
 
   if (cmd === 'choose_leader') {
     APP.sessionId = 'session_mock_' + Date.now();
-    return { ok: true };
+    return APP.sessionId;
   }
 
   if (cmd === 'send_to_leader') {
@@ -826,7 +860,7 @@ async function mockInvoke(cmd, args = {}) {
       const planResponse = `I'll break this down into tasks:\n\n1. Set up project structure and configuration\n2. Implement core data models\n3. Create API endpoints\n4. Build frontend components\n5. Add authentication and authorization\n6. Write unit and integration tests\n7. Final review and documentation`;
       emitMockEvent('leader-output', { chunk: planResponse });
     }, 1500);
-    return { ok: true };
+    return;
   }
 
   if (cmd === 'approve_plan') {
@@ -837,11 +871,16 @@ async function mockInvoke(cmd, args = {}) {
     // Start mock execution
     if (mockState.tickTimer) clearInterval(mockState.tickTimer);
     mockState.tickTimer = setInterval(mockExecutionTick, 2000);
-    return { ok: true };
+    // Return task IDs like the real backend
+    return mockState.tasks.map(t => t.id);
   }
 
   if (cmd === 'get_state') {
-    return { tasks: mockState.tasks, workers: mockState.workers };
+    return { tasks: mockState.tasks, workers: mockState.workers, logs: [] };
+  }
+
+  if (cmd === 'get_session_flow_state') {
+    return { phase: APP.screen === 'executing' ? 'Executing' : 'Idle', project_dir: APP.projectDir, leader_adapter_id: APP.selectedAdapter ? APP.selectedAdapter.id : null };
   }
 
   return null;
@@ -893,10 +932,13 @@ function mockExecutionTick() {
   if (mockState.tasks.length > 0 && mockState.tasks.every(t => t.status === 'done')) {
     clearInterval(mockState.tickTimer);
     mockState.tickTimer = null;
+    // Emit session-state-changed to trigger the reviewing phase
+    setTimeout(() => emitMockEvent('session-state-changed', { phase: 'reviewing' }), 500);
   }
 }
 
 // --- Boot ---
+subscribeEvents();
 render();
 
 </script>

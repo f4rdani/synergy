@@ -1,0 +1,7 @@
+{
+  "task_id": "task-synergy-full-implementation",
+  "task_description": "Implement the complete Synergy application flow: frontend UI with multi-screen session flow (welcome, leader selection, planning chat, plan approval, worker dashboard), backend session flow state machine with new Tauri commands, leader CLI interaction wiring, and end-to-end integration connecting all pieces.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null
+}

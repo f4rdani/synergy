@@ -1,10 +1,13 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for the Synergy main window",
+  "description": "Capabilities for the Synergy main window - all session flow commands",
   "windows": ["main"],
   "permissions": [
     "core:default",
     "core:event:default",
-    "core:window:default"
+    "core:event:allow-emit",
+    "core:event:allow-listen",
+    "core:window:default",
+    "core:window:allow-set-title"
   ]
 }

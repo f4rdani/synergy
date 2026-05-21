@@ -1,0 +1,33 @@
+{
+  "project_type": "Rust Tauri 2.0 desktop app with Leader-Worker AI orchestration architecture",
+  "language": "Rust (backend) + Vanilla HTML/CSS/JS (frontend)",
+  "build_system": "Cargo workspace with 11 crates. Windows target (x86_64-pc-windows-msvc) but CI also runs on Ubuntu. Tauri 2.0 for desktop shell.",
+  "test_framework": "cargo test (unit tests in each crate + e2e tests in synergy-tests crate)",
+  "build_command": "cargo check --workspace (cannot run in this sandbox due to INTEGRATIONS_ONLY network - no crate downloads)",
+  "test_command": "cargo test --workspace (not runnable in sandbox)",
+  "verification_instructions": "1. Verify Rust files parse correctly using rustfmt --check. 2. Verify HTML/CSS/JS frontend files are syntactically valid. 3. Verify new Tauri commands are registered in register_handlers. 4. Verify frontend invokes correct Tauri command names.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "Rust toolchain installed but network is blocked. Cannot download crates. Use AST-level validation only.",
+  "environment_constraints": "INTEGRATIONS_ONLY - no external network access. Cannot download crates, npm packages, or Docker images. All Rust deps already pinned in Cargo.lock. Frontend must be vanilla HTML/CSS/JS (no framework). Validation is AST/syntax only - no compilation possible.",
+  "contribution_requirements": "CI runs cargo fmt --check, cargo clippy, cargo test on Windows and Ubuntu. Code must pass clippy with -D warnings.",
+  "key_patterns": "1. Tauri commands defined in synergy-ui/src/lib.rs with #[tauri::command] and registered via register_handlers. 2. Frontend lives at crates/synergy-ui/dist/index.html (single page). 3. Backend uses broadcast channels for worker output streaming. 4. AppAdapter trait for different AI tool integrations. 5. Orchestrator tick loop (500ms interval) drives scheduling. 6. Leader plan parsing via regex in synergy-core/src/leader.rs. 7. Database (SQLite) tracks all state in synergy-db. 8. ProxyManager assigns per-worker IPs.",
+  "relevant_files": [
+    "crates/synergy-ui/dist/index.html",
+    "crates/synergy-ui/src/lib.rs",
+    "crates/synergy-core/src/lib.rs",
+    "crates/synergy-core/src/leader.rs",
+    "crates/synergy-proto/src/lib.rs",
+    "crates/synergy-adapter/src/adapter.rs",
+    "crates/synergy-adapter/src/cli_opencode.rs",
+    "crates/synergy-adapter/src/cli_generic.rs",
+    "crates/synergy-adapter/src/lib.rs",
+    "crates/synergy-config/src/lib.rs",
+    "crates/synergy-db/src/lib.rs",
+    "crates/synergy-app/src/main.rs",
+    "crates/synergy-app/tauri.conf.json",
+    "crates/synergy-app/capabilities/default.json",
+    "adapters.toml",
+    "prototype.html"
+  ],
+  "directory_structure": "Root workspace Cargo.toml with crates/: synergy-app (Tauri entry), synergy-ui (commands + dist/), synergy-core (orchestrator + leader), synergy-proto (data models), synergy-adapter (adapter trait + impls), synergy-db (SQLite), synergy-proxy (proxy mgr), synergy-pty (PTY), synergy-config (config), synergy-win32 (Windows embedding), synergy-tests (e2e tests). Frontend served from crates/synergy-ui/dist/."
+}
