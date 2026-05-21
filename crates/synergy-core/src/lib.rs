@@ -226,6 +226,33 @@ impl Orchestrator {
                 event_type: "TaskDone".to_owned(),
                 payload: format!("Task {} completed on worker {}", task.id, worker.id),
             })?;
+
+            // Immediately unblock tasks that depended on this one
+            let all_tasks = db.get_all_tasks(&self.session_id)?;
+            for blocked_task in all_tasks.iter().filter(|t| t.status == TaskStatus::Blocked) {
+                if blocked_task.depends_on.contains(&task.id) {
+                    // Check if ALL dependencies are now done
+                    let all_deps_done = blocked_task.depends_on.iter().all(|dep_id| {
+                        all_tasks
+                            .iter()
+                            .any(|t| t.id == *dep_id && t.status == TaskStatus::Done)
+                    });
+                    if all_deps_done {
+                        db.update_task_status(&blocked_task.id, TaskStatus::Pending)?;
+                        db.insert_event_log(&EventLog {
+                            id: None,
+                            session_id: self.session_id.clone(),
+                            ts: Utc::now(),
+                            source: "orchestrator".to_owned(),
+                            event_type: "TaskUnblocked".to_owned(),
+                            payload: format!(
+                                "Task {} unblocked (dependency {} completed by worker {})",
+                                blocked_task.id, task.id, worker.id
+                            ),
+                        })?;
+                    }
+                }
+            }
         }
         worker.status = AppStatus::Idle;
         worker.output_buffer.clear();
@@ -256,6 +283,21 @@ impl Orchestrator {
 
             let next_status = if task.attempt >= self.max_attempts {
                 TaskStatus::Escalated
+            } else if is_dependency_error(&err_msg) && !task.depends_on.is_empty() {
+                // Looks like a missing file/dependency error - re-block so it retries
+                // when the dependency truly completes
+                db.insert_event_log(&EventLog {
+                    id: None,
+                    session_id: self.session_id.clone(),
+                    ts: Utc::now(),
+                    source: "orchestrator".to_owned(),
+                    event_type: "TaskReblocked".to_owned(),
+                    payload: format!(
+                        "Task {} re-blocked due to dependency error (will auto-retry when deps are ready)",
+                        task.id
+                    ),
+                })?;
+                TaskStatus::Blocked
             } else {
                 TaskStatus::Pending
             };
@@ -296,7 +338,7 @@ impl Orchestrator {
             .flat_map(|t| t.files_target.iter().cloned())
             .collect();
 
-        for task in all_tasks {
+        for task in all_tasks.iter() {
             if !matches!(task.status, TaskStatus::Pending | TaskStatus::Blocked) {
                 continue;
             }
@@ -306,6 +348,28 @@ impl Orchestrator {
             if !deps_ok {
                 if task.status != TaskStatus::Blocked {
                     db.update_task_status(&task.id, TaskStatus::Blocked)?;
+                    // Log which dependencies are still pending
+                    let pending_deps: Vec<&String> = task
+                        .depends_on
+                        .iter()
+                        .filter(|d| !done_ids.contains(*d))
+                        .collect();
+                    db.insert_event_log(&EventLog {
+                        id: None,
+                        session_id: self.session_id.clone(),
+                        ts: Utc::now(),
+                        source: "orchestrator".to_owned(),
+                        event_type: "TaskWaiting".to_owned(),
+                        payload: format!(
+                            "Task {} waiting for: {}",
+                            task.id,
+                            pending_deps
+                                .iter()
+                                .map(|d| d.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        ),
+                    })?;
                 }
                 continue;
             }
@@ -329,8 +393,44 @@ impl Orchestrator {
             db.update_task_status(&task.id, TaskStatus::Running)?;
             db.update_worker_status(worker.id as u32, "working")?;
 
+            // Enrich instruction with dependency context so worker AI knows what files exist
+            let enriched_instruction = if !task.depends_on.is_empty() {
+                let dep_context: Vec<String> = task
+                    .depends_on
+                    .iter()
+                    .filter_map(|dep_id| {
+                        all_tasks
+                            .iter()
+                            .find(|t| t.id == *dep_id && t.status == TaskStatus::Done)
+                    })
+                    .map(|dep_task| {
+                        let files = if dep_task.files_target.is_empty() {
+                            "various files".to_owned()
+                        } else {
+                            dep_task.files_target.join(", ")
+                        };
+                        format!(
+                            "- Completed: \"{}\" (files created: {})",
+                            dep_task.title, files
+                        )
+                    })
+                    .collect();
+
+                if dep_context.is_empty() {
+                    task.instruction.clone()
+                } else {
+                    format!(
+                        "{}\n\n[CONTEXT: The following prerequisite tasks are already completed. Their output files exist in the project directory:]\n{}",
+                        task.instruction,
+                        dep_context.join("\n")
+                    )
+                }
+            } else {
+                task.instruction.clone()
+            };
+
             self.adapter
-                .send_command(&mut worker.handle, &task.instruction)
+                .send_command(&mut worker.handle, &enriched_instruction)
                 .await?;
 
             db.insert_event_log(&EventLog {
@@ -342,7 +442,7 @@ impl Orchestrator {
                 payload: format!("Task {} assigned to worker {}", task.id, worker.id),
             })?;
 
-            let mut task = task;
+            let mut task = task.clone();
             task.status = TaskStatus::Running;
             task.worker_id = Some(worker.id as u32);
             task.started_at = Some(Utc::now());
@@ -366,6 +466,24 @@ fn trim_for_log(s: &str) -> String {
         t.push_str("…(truncated)");
         t
     }
+}
+
+/// Detect if an error message is likely caused by a missing dependency/file
+/// that another worker hasn't created yet.
+fn is_dependency_error(err: &str) -> bool {
+    let lower = err.to_lowercase();
+    lower.contains("not found")
+        || lower.contains("no such file")
+        || lower.contains("cannot find")
+        || lower.contains("does not exist")
+        || lower.contains("module not found")
+        || lower.contains("import error")
+        || lower.contains("could not resolve")
+        || lower.contains("cannot resolve")
+        || lower.contains("file not found")
+        || lower.contains("enoent")
+        || lower.contains("class not found")
+        || lower.contains("namespace")
 }
 
 #[cfg(test)]

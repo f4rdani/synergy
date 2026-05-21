@@ -142,6 +142,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .stask-done .sidebar-task-icon{color:var(--green)}
 .stask-running .sidebar-task-icon{color:var(--accent)}
 .stask-pending .sidebar-task-icon{color:var(--text-dim)}
+.stask-waiting .sidebar-task-icon{color:var(--yellow)}
+.stask-waiting .sidebar-task-text{color:var(--yellow);font-style:italic}
 .sidebar-task-text{color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
 .stask-done .sidebar-task-text{color:var(--text-dim);text-decoration:line-through}
 .sidebar-task-worker{font-size:9px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;flex-shrink:0}
@@ -589,8 +591,8 @@ function renderSidebar() {
   const pct = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
   const taskItems = APP.execTasks.map((t, i) => {
-    const cls = t.status === 'done' ? 'stask-done' : t.status === 'running' ? 'stask-running' : 'stask-pending';
-    const icon = t.status === 'done' ? '&#10003;' : t.status === 'running' ? '&#9881;' : '&#9675;';
+    const cls = t.status === 'done' ? 'stask-done' : t.status === 'running' ? 'stask-running' : t.status === 'blocked' ? 'stask-waiting' : 'stask-pending';
+    const icon = t.status === 'done' ? '&#10003;' : t.status === 'running' ? '&#9881;' : t.status === 'blocked' ? '&#9203;' : '&#9675;';
     const wLabel = t.worker_id !== null && t.worker_id !== undefined ? 'W' + (t.worker_id + 1) : '';
     return `<div class="sidebar-task-item ${cls}"><span class="sidebar-task-icon">${icon}</span><span class="sidebar-task-text">${escapeHtml(t.title)}</span><span class="sidebar-task-worker">${wLabel}</span></div>`;
   }).join('');
