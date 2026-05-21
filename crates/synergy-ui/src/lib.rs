@@ -497,6 +497,19 @@ struct AdapterEntry {
     desc: String,
 }
 
+/// Resolve the actual binary path for an adapter ID from the embedded adapters.toml.
+///
+/// For example, "claude-cli" resolves to binary "claude", "codex-cli" to "codex".
+/// Falls back to the adapter_id itself if not found (e.g. for api-direct or unknown adapters).
+fn resolve_adapter_bin(adapter_id: &str) -> String {
+    if let Ok(parsed) = toml::from_str::<AdaptersFile>(ADAPTERS_TOML) {
+        if let Some(entry) = parsed.adapter.iter().find(|a| a.id == adapter_id) {
+            return entry.bin.clone();
+        }
+    }
+    adapter_id.to_owned()
+}
+
 /// Return the list of all supported adapters from the embedded adapters.toml.
 /// The frontend uses this to display Leader selection cards.
 #[tauri::command]
@@ -521,6 +534,11 @@ async fn get_adapters() -> Result<Vec<AdapterInfo>, String> {
 async fn select_folder(state: State<'_, AppState>, path: String) -> Result<(), String> {
     if path.is_empty() {
         return Err("Path cannot be empty".into());
+    }
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        std::fs::create_dir_all(p)
+            .map_err(|e| format!("Cannot create directory '{}': {e}", path))?;
     }
     let mut flow = state.session_flow.lock().await;
     flow.select_folder(path)?;
@@ -557,8 +575,10 @@ async fn choose_leader<R: Runtime>(
     let adapter = pick_adapter(&adapter_id);
 
     // Launch the Leader process (PTY for CLI, placeholder for GUI)
+    // Resolve actual binary from adapters.toml (e.g. "claude-cli" -> "claude")
+    let bin_path = resolve_adapter_bin(&adapter_id);
     let launch_config = LaunchConfig {
-        bin_path: adapter_id.clone(),
+        bin_path,
         args: Vec::new(),
         cwd: Some(project_dir.clone()),
         proxy_addr: None,
@@ -691,14 +711,17 @@ fn spawn_leader_output_pump_tauri<R: Runtime>(
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
-            let mut flow = session_flow.lock().await;
-            // Stop pumping if session is complete or no leader connected
-            if flow.phase == SessionPhase::Complete || flow.leader_handle.is_none() {
-                break;
-            }
-            if let Some(output) = flow.read_leader_output().await {
-                if !output.is_empty() {
-                    let _ = app.emit("leader-output", serde_json::json!({"chunk": output}));
+            let output = {
+                let mut flow = session_flow.lock().await;
+                // Stop pumping if session is complete or no leader connected
+                if flow.phase == SessionPhase::Complete || flow.leader_handle.is_none() {
+                    break;
+                }
+                flow.read_leader_output().await
+            }; // mutex released here
+            if let Some(ref text) = output {
+                if !text.is_empty() {
+                    let _ = app.emit("leader-output", serde_json::json!({"chunk": text}));
                 }
             }
         }
@@ -762,14 +785,36 @@ fn spawn_completion_monitor<R: Runtime>(
                 let report = synergy_core::leader::compose_batch_report(&completed_tasks);
 
                 // Advance to Reviewing and send report to Leader
-                let mut flow = session_flow.lock().await;
-                flow.advance_to_reviewing();
-                let _ = flow.send_to_leader(&report).await;
+                {
+                    let mut flow = session_flow.lock().await;
+                    flow.advance_to_reviewing();
+                    let _ = flow.send_to_leader(&report).await;
+                }
 
                 let _ = app.emit(
                     "session-state-changed",
                     serde_json::json!({"phase": "reviewing"}),
                 );
+
+                // Wait for leader approval (poll for up to 30 seconds)
+                let approval_deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+                loop {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+
+                    let flow = session_flow.lock().await;
+                    let approved = synergy_core::leader::is_approval(&flow.leader_output_buffer);
+                    drop(flow);
+
+                    if approved || tokio::time::Instant::now() >= approval_deadline {
+                        let mut flow = session_flow.lock().await;
+                        flow.advance_to_complete();
+                        let _ = app.emit(
+                            "session-state-changed",
+                            serde_json::json!({"phase": "complete"}),
+                        );
+                        break;
+                    }
+                }
                 break;
             }
         }
