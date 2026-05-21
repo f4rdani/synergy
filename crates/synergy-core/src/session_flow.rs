@@ -71,10 +71,7 @@ impl SessionFlowController {
     /// Advance to FolderSelected after the user picks a project directory.
     pub fn select_folder(&mut self, path: String) -> Result<(), String> {
         if self.phase != SessionPhase::Idle && self.phase != SessionPhase::FolderSelected {
-            return Err(format!(
-                "Cannot select folder in phase {:?}",
-                self.phase
-            ));
+            return Err(format!("Cannot select folder in phase {:?}", self.phase));
         }
         self.project_dir = Some(path);
         self.phase = SessionPhase::FolderSelected;
@@ -94,10 +91,7 @@ impl SessionFlowController {
         session_id: String,
     ) -> Result<(), String> {
         if self.phase != SessionPhase::FolderSelected {
-            return Err(format!(
-                "Cannot choose leader in phase {:?}",
-                self.phase
-            ));
+            return Err(format!("Cannot choose leader in phase {:?}", self.phase));
         }
         self.leader_adapter_id = Some(adapter_id);
         self.leader_adapter = Some(adapter);

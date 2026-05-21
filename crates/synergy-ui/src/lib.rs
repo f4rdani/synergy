@@ -21,9 +21,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use synergy_adapter::{
-    AppAdapter, AppStatus, GenericCliAdapter, LaunchConfig, OpenCodeAdapter,
-};
+use synergy_adapter::{AppAdapter, AppStatus, GenericCliAdapter, LaunchConfig, OpenCodeAdapter};
 use synergy_config::SynergyConfig;
 use synergy_core::session_flow::SessionFlowController;
 use synergy_core::{Orchestrator, WorkerOutput};
@@ -127,7 +125,10 @@ async fn init_session_impl<R: Runtime>(
         .ok(); // ignore duplicate project on warm start
 
     let session_id = format!("s_{}", Utc::now().timestamp());
-    let adapter_id = args.adapter_id.clone().unwrap_or(cfg.workers.adapter.clone());
+    let adapter_id = args
+        .adapter_id
+        .clone()
+        .unwrap_or(cfg.workers.adapter.clone());
     db.insert_session(&session_id, "p1", &adapter_id, args.worker_count)?;
 
     let proxy_configs = cfg.proxy.to_proxy_configs(args.worker_count);
@@ -142,12 +143,15 @@ async fn init_session_impl<R: Runtime>(
     // Single DB handle shared between orchestrator and UI commands.
     let shared_db = Arc::new(Mutex::new(db));
 
-    let orchestrator =
-        Orchestrator::with_shared_db(shared_db.clone(), pm, session_id.clone())
-            .with_adapter(pick_adapter(&adapter_id));
+    let orchestrator = Orchestrator::with_shared_db(shared_db.clone(), pm, session_id.clone())
+        .with_adapter(pick_adapter(&adapter_id));
 
     orchestrator
-        .spawn_workers(args.worker_count as usize, &bin, args.project_dir.as_deref())
+        .spawn_workers(
+            args.worker_count as usize,
+            &bin,
+            args.project_dir.as_deref(),
+        )
         .await
         .context("spawn workers")?;
 
@@ -203,10 +207,7 @@ fn spawn_output_pump<R: Runtime>(app: AppHandle<R>, orch: Arc<Orchestrator>) {
 }
 
 #[tauri::command]
-async fn get_state(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<SessionState, String> {
+async fn get_state(state: State<'_, AppState>, session_id: String) -> Result<SessionState, String> {
     let db_opt = state.db.lock().await;
     let db_arc = db_opt.as_ref().ok_or("Database not initialized")?;
     let db = db_arc.lock().await;
@@ -254,10 +255,7 @@ pub struct AddTaskArgs {
 }
 
 #[tauri::command]
-async fn add_task(
-    state: State<'_, AppState>,
-    args: AddTaskArgs,
-) -> Result<String, String> {
+async fn add_task(state: State<'_, AppState>, args: AddTaskArgs) -> Result<String, String> {
     let db_opt = state.db.lock().await;
     let db_arc = db_opt.as_ref().ok_or("Database not initialized")?;
     let db = db_arc.lock().await;
@@ -387,7 +385,11 @@ async fn resize_gui_app(hwnd: i64, width: i32, height: i32) -> Result<(), String
 }
 
 #[tauri::command]
-async fn launch_gui_app(exe: String, args: Vec<String>, cwd: Option<String>) -> Result<u32, String> {
+async fn launch_gui_app(
+    exe: String,
+    args: Vec<String>,
+    cwd: Option<String>,
+) -> Result<u32, String> {
     #[cfg(not(windows))]
     {
         let _ = (exe, args, cwd);
@@ -428,7 +430,8 @@ async fn git_status(project_dir: String) -> Result<String, String> {
 #[tauri::command]
 async fn git_log(project_dir: String, count: Option<u32>) -> Result<String, String> {
     let git = synergy_core::git::GitOps::new(&project_dir);
-    git.log_short(count.unwrap_or(10)).map_err(|e| e.to_string())
+    git.log_short(count.unwrap_or(10))
+        .map_err(|e| e.to_string())
 }
 
 // ─── Session Commands (Phase 3) ─────────────────────────────────────────────
@@ -443,9 +446,7 @@ pub struct SessionListItem {
 }
 
 #[tauri::command]
-async fn list_sessions(
-    state: State<'_, AppState>,
-) -> Result<Vec<SessionListItem>, String> {
+async fn list_sessions(state: State<'_, AppState>) -> Result<Vec<SessionListItem>, String> {
     let db_opt = state.db.lock().await;
     let db_arc = db_opt.as_ref().ok_or("Database not initialized")?;
     let db = db_arc.lock().await;
@@ -464,10 +465,7 @@ async fn list_sessions(
 }
 
 #[tauri::command]
-async fn end_current_session(
-    state: State<'_, AppState>,
-    session_id: String,
-) -> Result<(), String> {
+async fn end_current_session(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let db_opt = state.db.lock().await;
     let db_arc = db_opt.as_ref().ok_or("Database not initialized")?;
     let db = db_arc.lock().await;
@@ -520,10 +518,7 @@ async fn get_adapters() -> Result<Vec<AdapterInfo>, String> {
 /// Validate and store the selected project folder, advancing the session
 /// flow to FolderSelected.
 #[tauri::command]
-async fn select_folder(
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<(), String> {
+async fn select_folder(state: State<'_, AppState>, path: String) -> Result<(), String> {
     if path.is_empty() {
         return Err("Path cannot be empty".into());
     }
@@ -593,10 +588,7 @@ async fn choose_leader<R: Runtime>(
 /// Send a user message to the Leader AI via the adapter (PTY stdin or API call).
 /// The response comes asynchronously via the 'leader-output' Tauri event.
 #[tauri::command]
-async fn send_to_leader(
-    state: State<'_, AppState>,
-    message: String,
-) -> Result<(), String> {
+async fn send_to_leader(state: State<'_, AppState>, message: String) -> Result<(), String> {
     let mut flow = state.session_flow.lock().await;
 
     // Advance to Planning on first message
@@ -684,9 +676,7 @@ async fn approve_plan<R: Runtime>(
 
 /// Return the current session flow state for the frontend to render.
 #[tauri::command]
-async fn get_session_flow_state(
-    state: State<'_, AppState>,
-) -> Result<SessionFlowState, String> {
+async fn get_session_flow_state(state: State<'_, AppState>) -> Result<SessionFlowState, String> {
     let flow = state.session_flow.lock().await;
     Ok(flow.snapshot())
 }
@@ -708,10 +698,7 @@ fn spawn_leader_output_pump_tauri<R: Runtime>(
             }
             if let Some(output) = flow.read_leader_output().await {
                 if !output.is_empty() {
-                    let _ = app.emit(
-                        "leader-output",
-                        serde_json::json!({"chunk": output}),
-                    );
+                    let _ = app.emit("leader-output", serde_json::json!({"chunk": output}));
                 }
             }
         }
@@ -790,32 +777,33 @@ fn spawn_completion_monitor<R: Runtime>(
 }
 
 pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
-    builder.setup(|app| {
-        app.manage(AppState::default());
-        Ok(())
-    })
-    .invoke_handler(tauri::generate_handler![
-        get_status,
-        get_config,
-        init_session,
-        get_state,
-        add_task,
-        add_plan,
-        send_worker_command,
-        embed_gui_app,
-        detach_gui_app,
-        resize_gui_app,
-        launch_gui_app,
-        git_commit_task,
-        git_status,
-        git_log,
-        list_sessions,
-        end_current_session,
-        get_adapters,
-        select_folder,
-        choose_leader,
-        send_to_leader,
-        approve_plan,
-        get_session_flow_state
-    ])
+    builder
+        .setup(|app| {
+            app.manage(AppState::default());
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_status,
+            get_config,
+            init_session,
+            get_state,
+            add_task,
+            add_plan,
+            send_worker_command,
+            embed_gui_app,
+            detach_gui_app,
+            resize_gui_app,
+            launch_gui_app,
+            git_commit_task,
+            git_status,
+            git_log,
+            list_sessions,
+            end_current_session,
+            get_adapters,
+            select_folder,
+            choose_leader,
+            send_to_leader,
+            approve_plan,
+            get_session_flow_state
+        ])
 }

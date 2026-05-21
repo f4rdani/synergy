@@ -411,7 +411,9 @@ mod tests {
         db.insert_session("s1", "p1", "stub", 1).unwrap();
         let pm = ProxyManager::new(vec![]);
         let mut o = Orchestrator::new(db, pm, "s1".to_owned());
-        o.adapter = Arc::new(StubAdapter { next_status: adapter });
+        o.adapter = Arc::new(StubAdapter {
+            next_status: adapter,
+        });
         o
     }
 
@@ -500,7 +502,11 @@ mod tests {
             .iter()
             .filter(|t| t.status == TaskStatus::Running)
             .collect();
-        assert_eq!(running.len(), 1, "only one task should run when files clash");
+        assert_eq!(
+            running.len(),
+            1,
+            "only one task should run when files clash"
+        );
     }
 
     #[tokio::test]
