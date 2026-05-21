@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Complete Frontend UI with multi-screen session flow - Welcome/folder picker, Leader selection, Chat planning interface, Plan approval, Worker dashboard, and Status bar. Replaces the existing minimal index.html with a full single-page application using vanilla HTML/CSS/JS that implements the complete user flow from the prototype.html design.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1: Create the full frontend at crates/synergy-ui/dist/index.html. The app must implement a multi-screen SPA with these screens/states: (a) WELCOME screen - landing page with app branding, 'Open Folder' button triggering a folder picker dialog, and 'Create New Project' option. (b) LEADER_SELECT screen - shown after folder is selected; displays cards/list of available adapters from adapters.toml (opencode, aider, claude-cli, codex-cli, cursor, kiro, vscode, windsurf) with their type (cli/gui) and description; user picks one as Leader. (c) PLANNING screen - chat interface where user talks to Leader; user types requests, Leader responds with plans; shows message bubbles (user/assistant/system). (d) PLAN_REVIEW screen - displays parsed tasks from Leader's plan in a checklist; user can Approve or Request Changes. (e) EXECUTING screen - the main 3-column layout from prototype.html: Progress panel (left, ~10%), Workers grid (center, ~55%), Leader chat (right, ~35%). Shows real-time worker output via xterm.js terminals, task progress, worker status dots, activity log. (f) COMPLETE screen - summary of completed session.",
     "Step 2: Implement screen navigation state machine in JS. Track current screen state (welcome, leader_select, planning, plan_review, executing, complete). Transitions: welcome->leader_select (on folder picked), leader_select->planning (on leader chosen), planning->plan_review (when plan is detected), plan_review->executing (on approve), executing->complete (when all tasks done).",
@@ -35,5 +35,5 @@
     "Verify state machine transitions are implemented in JavaScript"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "File is 904 lines. All 6 screens implemented with state machine transitions. Mock mode simulates full flow with fake adapters and task execution. Regex plan detection uses /^\\s*(\\d+)[.)]\\s+(.+)$/ matching backend pattern. xterm.js terminals are created on entering executing screen and disposed on new session. The frontend references these Tauri commands: get_adapters, choose_leader, send_to_leader, approve_plan, get_state. Events listened: worker-output, leader-output. Braces fully balanced (234/234). Extra ) in raw paren count is from regex char class [.)] which is valid JS."
 }
