@@ -21,7 +21,9 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use synergy_adapter::{AppAdapter, AppStatus, GenericCliAdapter, LaunchConfig, OpenCodeAdapter};
+use synergy_adapter::{
+    AppAdapter, AppStatus, AppType, GenericCliAdapter, LaunchConfig, OpenCodeAdapter,
+};
 use synergy_config::SynergyConfig;
 use synergy_core::session_flow::SessionFlowController;
 use synergy_core::{Orchestrator, WorkerOutput};
@@ -105,6 +107,8 @@ fn pick_adapter(id: &str) -> Arc<dyn AppAdapter> {
         "opencode" => Arc::new(OpenCodeAdapter),
         "cursor" => Arc::new(synergy_adapter::CursorAdapter),
         "kiro" => Arc::new(synergy_adapter::KiroAdapter),
+        "antigravity" => Arc::new(synergy_adapter::AntigravityAdapter),
+        "codex-cli" | "codex" => Arc::new(synergy_adapter::CodexAdapter),
         "api-direct" | "api" => Arc::new(synergy_adapter::DirectApiAdapter::new()),
         other => Arc::new(GenericCliAdapter::new(other, other)),
     }
@@ -582,6 +586,15 @@ async fn choose_leader<R: Runtime>(
     // Pick the appropriate adapter for the Leader
     let adapter = pick_adapter(&adapter_id);
 
+    // Emit connecting status
+    let _ = app.emit(
+        "leader-connection-status",
+        serde_json::json!({
+            "status": "connecting",
+            "message": format!("Launching {}...", &adapter_id)
+        }),
+    );
+
     // Launch the Leader process (PTY for CLI, placeholder for GUI)
     // Resolve actual binary from adapters.toml (e.g. "claude-cli" -> "claude")
     let bin_path = resolve_adapter_bin(&adapter_id);
@@ -592,10 +605,37 @@ async fn choose_leader<R: Runtime>(
         proxy_addr: None,
     };
 
-    let handle = adapter
-        .launch(&launch_config)
-        .await
-        .map_err(|e| format!("Failed to launch leader: {e:#}"))?;
+    let handle = match adapter.launch(&launch_config).await {
+        Ok(h) => {
+            let conn_type = if adapter.app_type() == AppType::Gui {
+                "GUI window embedded via Win32 SetParent + UI Automation"
+            } else {
+                "CLI process via PTY (pseudo-terminal)"
+            };
+            let _ = app.emit(
+                "leader-connection-status",
+                serde_json::json!({
+                    "status": "connected",
+                    "message": format!("Successfully connected to {}", &adapter_id),
+                    "connection_type": conn_type,
+                    "adapter_id": &adapter_id
+                }),
+            );
+            h
+        }
+        Err(e) => {
+            let _ = app.emit(
+                "leader-connection-status",
+                serde_json::json!({
+                    "status": "failed",
+                    "message": format!("Failed to connect: {}", e),
+                    "adapter_id": &adapter_id,
+                    "error": format!("{e:#}")
+                }),
+            );
+            return Err(format!("Failed to launch leader: {e:#}"));
+        }
+    };
 
     // Store in session flow
     {
@@ -852,6 +892,219 @@ fn spawn_completion_monitor<R: Runtime>(
     });
 }
 
+/// Fetch available models from the connected Leader provider.
+/// - CLI leaders: send /model or /models command, parse response
+/// - API-direct: call provider's model listing API
+/// - GUI leaders: return known model list from config
+#[tauri::command]
+async fn fetch_leader_models(state: State<'_, AppState>) -> Result<Vec<ModelInfo>, String> {
+    let flow = state.session_flow.lock().await;
+    let adapter_id = flow.leader_adapter_id.as_deref().unwrap_or("").to_owned();
+    drop(flow);
+
+    match adapter_id.as_str() {
+        // CLI-based leaders: query via PTY
+        "opencode" | "aider" | "claude-cli" | "codex-cli" | "antigravity" => {
+            // Send model listing command
+            let cmd = match adapter_id.as_str() {
+                "claude-cli" => "/model",
+                "opencode" => "/model",
+                "aider" => "/models",
+                "codex-cli" => "codex models",
+                _ => "/model",
+            };
+
+            let mut flow = state.session_flow.lock().await;
+            if let Err(e) = flow.send_to_leader(cmd).await {
+                return Err(format!("Failed to query models: {e}"));
+            }
+            drop(flow);
+
+            // Wait for response
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+            let flow = state.session_flow.lock().await;
+            let output = &flow.leader_output_buffer;
+            let models = parse_leader_model_list(output, &adapter_id);
+            if models.is_empty() {
+                Ok(known_models_for_provider(&adapter_id))
+            } else {
+                Ok(models)
+            }
+        }
+        // API-direct: return models based on configured provider
+        "api-direct" | "api" => Ok(known_models_for_provider("api-direct")),
+        // GUI IDEs: return known models
+        "cursor" => Ok(known_models_for_provider("cursor")),
+        "kiro" => Ok(known_models_for_provider("kiro")),
+        "windsurf" => Ok(known_models_for_provider("windsurf")),
+        _ => Ok(known_models_for_provider(&adapter_id)),
+    }
+}
+
+/// Parse model list output from a CLI leader.
+fn parse_leader_model_list(output: &str, _adapter_id: &str) -> Vec<ModelInfo> {
+    let clean = synergy_adapter::OpenCodeAdapter::strip_ansi(output);
+    let mut models = Vec::new();
+
+    for line in clean.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        // Skip header lines
+        if trimmed.starts_with("Available")
+            || trimmed.starts_with("Model")
+            || trimmed.starts_with("Current")
+            || trimmed.starts_with("---")
+        {
+            continue;
+        }
+
+        let cleaned = trimmed
+            .trim_start_matches(|c: char| {
+                c.is_ascii_digit()
+                    || c == '.'
+                    || c == ')'
+                    || c == '*'
+                    || c == '>'
+                    || c == '-'
+                    || c == ' '
+            })
+            .trim();
+
+        if let Some(model_id) = cleaned.split_whitespace().next() {
+            if model_id.contains('/') && model_id.len() > 3 {
+                let parts: Vec<&str> = model_id.splitn(2, '/').collect();
+                let provider = parts.first().unwrap_or(&"unknown");
+                let name = parts.get(1).unwrap_or(&model_id);
+                if !models.iter().any(|m: &ModelInfo| m.id == model_id) {
+                    models.push(ModelInfo {
+                        id: model_id.to_owned(),
+                        name: name.replace('-', " "),
+                        provider: capitalize_first(provider),
+                        free: !trimmed.to_lowercase().contains("paid"),
+                    });
+                }
+            }
+        }
+    }
+    models
+}
+
+/// Known models for providers (used as fallback or for GUI IDEs).
+fn known_models_for_provider(provider_id: &str) -> Vec<ModelInfo> {
+    match provider_id {
+        "cursor" => vec![
+            ModelInfo {
+                id: "claude-sonnet-4".into(),
+                name: "Claude Sonnet 4".into(),
+                provider: "Cursor".into(),
+                free: false,
+            },
+            ModelInfo {
+                id: "gpt-4o".into(),
+                name: "GPT-4o".into(),
+                provider: "Cursor".into(),
+                free: false,
+            },
+            ModelInfo {
+                id: "gpt-4o-mini".into(),
+                name: "GPT-4o Mini".into(),
+                provider: "Cursor".into(),
+                free: true,
+            },
+            ModelInfo {
+                id: "cursor-small".into(),
+                name: "Cursor Small".into(),
+                provider: "Cursor".into(),
+                free: true,
+            },
+        ],
+        "kiro" => vec![
+            ModelInfo {
+                id: "claude-sonnet-4".into(),
+                name: "Claude Sonnet 4".into(),
+                provider: "Kiro".into(),
+                free: false,
+            },
+            ModelInfo {
+                id: "claude-haiku-3.5".into(),
+                name: "Claude Haiku 3.5".into(),
+                provider: "Kiro".into(),
+                free: false,
+            },
+        ],
+        "windsurf" => vec![
+            ModelInfo {
+                id: "cascade".into(),
+                name: "Cascade".into(),
+                provider: "Windsurf".into(),
+                free: true,
+            },
+            ModelInfo {
+                id: "gpt-4o".into(),
+                name: "GPT-4o".into(),
+                provider: "Windsurf".into(),
+                free: false,
+            },
+        ],
+        "antigravity" => vec![ModelInfo {
+            id: "antigravity/default".into(),
+            name: "Antigravity Default".into(),
+            provider: "Antigravity".into(),
+            free: true,
+        }],
+        "codex-cli" => vec![
+            ModelInfo {
+                id: "codex-mini".into(),
+                name: "Codex Mini".into(),
+                provider: "OpenAI".into(),
+                free: true,
+            },
+            ModelInfo {
+                id: "o4-mini".into(),
+                name: "o4-mini".into(),
+                provider: "OpenAI".into(),
+                free: true,
+            },
+        ],
+        "api-direct" => vec![
+            ModelInfo {
+                id: "claude-sonnet-4-20250514".into(),
+                name: "Claude Sonnet 4".into(),
+                provider: "Anthropic".into(),
+                free: false,
+            },
+            ModelInfo {
+                id: "claude-haiku-3-5".into(),
+                name: "Claude Haiku 3.5".into(),
+                provider: "Anthropic".into(),
+                free: false,
+            },
+            ModelInfo {
+                id: "gpt-4o".into(),
+                name: "GPT-4o".into(),
+                provider: "OpenAI".into(),
+                free: false,
+            },
+            ModelInfo {
+                id: "gpt-4o-mini".into(),
+                name: "GPT-4o Mini".into(),
+                provider: "OpenAI".into(),
+                free: false,
+            },
+        ],
+        _ => vec![ModelInfo {
+            id: "default".into(),
+            name: "Default Model".into(),
+            provider: "Auto".into(),
+            free: true,
+        }],
+    }
+}
+
 /// Get the current worker model from config.
 #[tauri::command]
 async fn get_worker_model() -> Result<String, String> {
@@ -1021,6 +1274,96 @@ fn fallback_models() -> Vec<ModelInfo> {
     }]
 }
 
+/// Open native folder picker dialog using platform-native mechanisms.
+/// On Windows uses PowerShell FolderBrowserDialog, on macOS uses osascript,
+/// on Linux uses zenity.
+#[tauri::command]
+async fn open_folder_dialog() -> Result<Option<String>, String> {
+    let result = tokio::task::spawn_blocking(|| {
+        #[cfg(windows)]
+        {
+            let output = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select Project Folder'; $dialog.ShowNewFolderButton = $true; if ($dialog.ShowDialog() -eq 'OK') { $dialog.SelectedPath } else { '' }",
+                ])
+                .output();
+            match output {
+                Ok(out) => {
+                    let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                    if path.is_empty() {
+                        None
+                    } else {
+                        Some(path)
+                    }
+                }
+                Err(_) => None,
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let output = std::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    "POSIX path of (choose folder with prompt \"Select Project Folder\")",
+                ])
+                .output();
+            match output {
+                Ok(out) if out.status.success() => {
+                    let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                    if path.is_empty() {
+                        None
+                    } else {
+                        Some(path)
+                    }
+                }
+                _ => None,
+            }
+        }
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        {
+            let output = std::process::Command::new("zenity")
+                .args(["--file-selection", "--directory", "--title=Select Project Folder"])
+                .output();
+            match output {
+                Ok(out) if out.status.success() => {
+                    let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                    if path.is_empty() {
+                        None
+                    } else {
+                        Some(path)
+                    }
+                }
+                _ => None,
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("{e}"))?;
+
+    Ok(result)
+}
+
+/// Get list of recently opened project folders from config.
+#[tauri::command]
+async fn get_recent_projects() -> Result<Vec<String>, String> {
+    let cfg = SynergyConfig::load_default().unwrap_or_default();
+    Ok(cfg.general.recent_projects.clone())
+}
+
+/// Add a project to the recent projects list (max 10, most recent first).
+#[tauri::command]
+async fn add_recent_project(path: String) -> Result<(), String> {
+    let mut cfg = SynergyConfig::load_default().unwrap_or_default();
+    cfg.general.recent_projects.retain(|p| p != &path);
+    cfg.general.recent_projects.insert(0, path);
+    cfg.general.recent_projects.truncate(10);
+    let config_path = SynergyConfig::default_path().map_err(|e| e.to_string())?;
+    cfg.save_to(&config_path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .setup(|app| {
@@ -1050,8 +1393,12 @@ pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             send_to_leader,
             approve_plan,
             get_session_flow_state,
+            fetch_leader_models,
             get_worker_model,
             set_worker_model_cmd,
-            get_available_models
+            get_available_models,
+            open_folder_dialog,
+            get_recent_projects,
+            add_recent_project
         ])
 }

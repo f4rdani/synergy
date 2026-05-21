@@ -27,6 +27,12 @@ bin  = "codex"
 desc = "Codex CLI — OpenAI terminal tool"
 
 [[adapter]]
+id   = "antigravity"
+type = "cli"
+bin  = "antigravity"
+desc = "Antigravity — AI coding assistant CLI"
+
+[[adapter]]
 id   = "cli-generic"
 type = "cli"
 bin  = "cmd.exe"
@@ -61,3 +67,10 @@ type         = "gui"
 bin          = "Windsurf.exe"
 window_title = "Windsurf"
 desc         = "Windsurf — AI code editor"
+
+[[adapter]]
+id           = "codex-ide"
+type         = "gui"
+bin          = "codex"
+window_title = "Codex"
+desc         = "Codex — OpenAI AI coding IDE"

@@ -77,6 +77,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .folder-input-btn{background:var(--surface0);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:10px 14px;font-size:12px;cursor:pointer}
 .folder-input-btn:hover{border-color:var(--accent)}
 
+/* Recent Projects */
+.recent-projects{margin-top:24px;width:360px}
+.recent-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--text-dim);margin-bottom:8px}
+.recent-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:6px;cursor:pointer;transition:all .12s;font-size:12px;color:var(--text)}
+.recent-item:hover{background:var(--surface0)}
+.recent-path{font-size:10px;color:var(--text-dim);margin-left:auto;max-width:200px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;direction:rtl}
+
 /* Leader Select */
 .leader-select-screen{flex-direction:column;padding:32px;gap:16px;overflow-y:auto}
 .screen-title{font-size:20px;font-weight:700;color:var(--text)}
@@ -91,9 +98,30 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .badge-cli{background:rgba(166,227,161,.12);color:var(--green)}
 .badge-gui{background:rgba(203,166,247,.12);color:var(--mauve)}
 .adapter-card-desc{font-size:12px;color:var(--text-sub);line-height:1.4}
+.adapter-conn-info{font-size:10px;color:var(--teal);margin-top:6px;display:flex;align-items:center;gap:4px}
+.conn-icon{font-family:'JetBrains Mono',monospace;font-size:11px}
 
 /* Planning Chat */
 .planning-screen{flex-direction:column;background:var(--bg)}
+.planning-header{padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg-surface)}
+.planning-conn-status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text)}
+.planning-conn-status strong{color:var(--accent)}
+.conn-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.conn-dot.connected{background:var(--green);box-shadow:0 0 6px var(--green)}
+.conn-dot.disconnected{background:var(--red)}
+.conn-dot.connecting{background:var(--yellow);box-shadow:0 0 6px var(--yellow);animation:pulse 1s ease infinite}
+.conn-log{margin-top:8px;max-height:80px;overflow-y:auto;border-top:1px solid var(--border);padding-top:6px}
+.conn-log-entry{display:flex;align-items:center;gap:6px;padding:2px 0;font-size:10px;font-family:'JetBrains Mono',monospace}
+.conn-log-time{color:var(--text-dim);min-width:60px}
+.conn-log-status{font-weight:600;min-width:70px}
+.conn-connecting{color:var(--yellow)}
+.conn-connected{color:var(--green)}
+.conn-failed{color:var(--red)}
+.conn-log-msg{color:var(--text-sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.conn-type-badge{font-size:9px;background:var(--surface0);color:var(--text-dim);padding:2px 6px;border-radius:4px;margin-left:8px}
+.btn-fetch-models{margin-left:auto;background:var(--surface0);border:1px solid var(--border);border-radius:5px;padding:3px 10px;color:var(--mauve);font-size:10px;cursor:pointer}
+.btn-fetch-models:hover{border-color:var(--mauve)}
+.planning-hint{font-size:11px;color:var(--text-dim);margin-top:4px}
 .chat-area{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px}
 .chat-msg{max-width:80%;padding:12px 16px;border-radius:12px;font-size:13px;line-height:1.6;word-break:break-word;white-space:pre-wrap}
 .chat-msg.user{align-self:flex-end;background:var(--accent);color:var(--bg-crust);border-bottom-right-radius:3px}
@@ -305,6 +333,13 @@ const APP = {
   modelLoading: false,
   workerModel: '',
   availableModels: [],
+  recentProjects: [],
+  connectionStatus: 'disconnected',
+  connectionMessage: '',
+  connectionType: '',
+  connectionLog: [],
+  leaderModels: [],
+  selectedLeaderModel: null,
 };
 
 // --- Tauri Bridge ---
@@ -333,14 +368,28 @@ async function listen(ev, cb) {
 }
 
 async function openFolderDialog() {
-  if (tauriBridge && tauriBridge.dialog) {
+  // Tauri 2.0 dialog - try multiple API paths
+  if (window.__TAURI__) {
     try {
-      const result = await window.__TAURI__.dialog.open({ directory: true });
-      return result;
-    } catch (e) { return null; }
+      // Tauri 2.0 plugin API
+      if (window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+        const result = await window.__TAURI__.dialog.open({
+          directory: true,
+          multiple: false,
+          title: 'Select Project Folder'
+        });
+        if (result) return result;
+      }
+      // Fallback: invoke custom command that uses native OS dialogs
+      const result = await invoke('open_folder_dialog');
+      if (result) return result;
+    } catch (e) {
+      console.warn('Dialog failed, using input fallback:', e);
+    }
   }
-  // Mock: prompt fallback
-  return '/home/user/my-project';
+  // Final fallback: prompt user
+  const input = prompt('Enter project folder path:');
+  return input || null;
 }
 
 // --- Screen transitions ---
@@ -476,6 +525,13 @@ function renderScreens() {
 // --- Screen Renderers ---
 
 function renderWelcome() {
+  const recentList = APP.recentProjects.length > 0
+    ? `<div class="recent-projects">
+        <div class="recent-title">Recent Projects</div>
+        ${APP.recentProjects.map(p => `<div class="recent-item" data-path="${escapeHtml(p)}">${escapeHtml(p.split(/[\\/]/).pop())} <span class="recent-path">${escapeHtml(p)}</span></div>`).join('')}
+      </div>`
+    : '';
+
   return `
     <div class="welcome-logo">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -492,31 +548,69 @@ function renderWelcome() {
         <button class="folder-input-btn" id="btn-folder-go">Go</button>
       </div>
     </div>
+    ${recentList}
   `;
 }
 
 function renderLeaderSelect() {
-  const cards = APP.adapters.map(a => `
-    <div class="adapter-card${APP.selectedAdapter && APP.selectedAdapter.id === a.id ? ' selected' : ''}" data-adapter-id="${a.id}">
+  const cards = APP.adapters.map(a => {
+    const aType = a.type || a.adapter_type;
+    const connInfo = aType === 'cli'
+      ? 'Connects via PTY (terminal process)'
+      : aType === 'gui'
+      ? 'Connects via Win32 window embedding'
+      : 'Connects via HTTP API';
+    const connIcon = aType === 'cli' ? '&gt;_' : aType === 'gui' ? '&#9633;' : '&#9889;';
+
+    return `<div class="adapter-card${APP.selectedAdapter && APP.selectedAdapter.id === a.id ? ' selected' : ''}" data-adapter-id="${a.id}">
       <div class="adapter-card-header">
         <span class="adapter-card-id">${a.id}</span>
-        <span class="adapter-type-badge badge-${a.type}">${a.type}</span>
+        <span class="adapter-type-badge badge-${aType}">${aType}</span>
       </div>
       <div class="adapter-card-desc">${a.desc}</div>
-    </div>
-  `).join('');
+      <div class="adapter-conn-info"><span class="conn-icon">${connIcon}</span> ${connInfo}</div>
+    </div>`;
+  }).join('');
 
   return `
     <div class="screen-title">Select Leader AI</div>
-    <div class="screen-subtitle">Choose which AI application or CLI will act as the Leader for this session. The Leader orchestrates Workers and reviews their output.</div>
+    <div class="screen-subtitle">Choose which AI application or CLI will orchestrate this session. The Leader discusses with you, creates plans, and reviews worker output.</div>
     <div class="adapters-grid">${cards}</div>
+    <div style="margin-top:16px;padding:12px;background:var(--bg-overlay);border-radius:8px;border:1px solid var(--border)">
+      <div style="font-size:11px;color:var(--text-sub);line-height:1.6">
+        <strong style="color:var(--accent)">How it works:</strong> Synergy launches the selected app/CLI and connects to it. For CLI tools, it spawns a PTY process. For GUI apps (Cursor, Kiro), it embeds the window. For API-direct, it calls the HTTP endpoint. The Leader AI will receive your messages and respond with plans.
+      </div>
+    </div>
   `;
 }
 
 function renderPlanning() {
+  const leaderName = APP.selectedAdapter ? APP.selectedAdapter.id : 'AI';
+  const statusDot = APP.connectionStatus === 'connected' ? 'connected' : APP.connectionStatus === 'connecting' ? 'connecting' : 'disconnected';
+  const statusClass = 'conn-dot ' + statusDot;
+
+  const connLog = (APP.connectionLog || []).map(l =>
+    `<div class="conn-log-entry"><span class="conn-log-time">${l.ts}</span><span class="conn-log-status conn-${l.status}">${l.status}</span><span class="conn-log-msg">${escapeHtml(l.message)}</span></div>`
+  ).join('');
+
+  const modelBtn = APP.connectionStatus === 'connected'
+    ? `<button class="btn-fetch-models" id="btn-fetch-leader-models">Models (${APP.selectedLeaderModel || 'default'})</button>`
+    : '';
+
+  const connStatus = `<div class="planning-header">
+    <div class="planning-conn-status">
+      <span class="${statusClass}"></span>
+      ${APP.connectionStatus === 'connected' ? 'Connected to' : APP.connectionStatus === 'connecting' ? 'Connecting to' : 'Disconnected from'} <strong>${leaderName}</strong>
+      ${APP.connectionType ? `<span class="conn-type-badge">${escapeHtml(APP.connectionType)}</span>` : ''}
+      ${modelBtn}
+    </div>
+    <div class="planning-hint">Describe what you want to build. The Leader will create a plan and assign tasks to Workers.</div>
+    ${connLog ? `<div class="conn-log">${connLog}</div>` : ''}
+  </div>`;
+
   const msgs = APP.messages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
-  const showReview = APP.planText ? '' : 'hidden';
   return `
+    ${connStatus}
     <div class="chat-area" id="chat-area">${msgs}</div>
     ${APP.planText ? '<button class="btn-review-plan" id="btn-review-plan">Review Plan</button>' : ''}
     <div class="chat-input-area">
@@ -713,6 +807,19 @@ function attachEvents() {
   const folderInput = document.getElementById('folder-path-input');
   if (folderInput) folderInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleFolderGo(); });
 
+  // Recent projects
+  document.querySelectorAll('.recent-item').forEach(el => {
+    el.addEventListener('click', async () => {
+      const path = el.dataset.path;
+      if (path) {
+        APP.projectDir = path;
+        try { await invoke('select_folder', { path }); } catch (e) {}
+        try { await invoke('add_recent_project', { path }); } catch (e) {}
+        await loadAdaptersAndGo();
+      }
+    });
+  });
+
   // Leader select
   document.querySelectorAll('.adapter-card').forEach(card => {
     card.addEventListener('click', () => handleAdapterSelect(card.dataset.adapterId));
@@ -763,6 +870,19 @@ function attachEvents() {
     el.addEventListener('click', () => selectModel(el.dataset.modelId));
   });
 
+  // Leader model fetch button
+  document.getElementById('btn-fetch-leader-models')?.addEventListener('click', async () => {
+    try {
+      APP.leaderModels = await invoke('fetch_leader_models');
+      APP.showModelSelector = true;
+      APP.modelLoading = false;
+      APP.availableModels = APP.leaderModels;
+      render();
+    } catch(e) {
+      alert('Failed to fetch models: ' + e);
+    }
+  });
+
   // Scroll chat to bottom
   const chatArea = document.getElementById('chat-area');
   if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
@@ -776,6 +896,7 @@ async function handleOpenFolder() {
   const result = await openFolderDialog();
   if (result) {
     APP.projectDir = result;
+    try { await invoke('add_recent_project', { path: result }); } catch (e) {}
     await loadAdaptersAndGo();
   }
 }
@@ -784,6 +905,7 @@ function handleFolderGo() {
   const input = document.getElementById('folder-path-input');
   if (input && input.value.trim()) {
     APP.projectDir = input.value.trim();
+    invoke('add_recent_project', { path: APP.projectDir }).catch(() => {});
     loadAdaptersAndGo();
   }
 }
@@ -806,16 +928,31 @@ async function handleAdapterSelect(adapterId) {
   const adapter = APP.adapters.find(a => a.id === adapterId);
   if (!adapter) return;
   APP.selectedAdapter = adapter;
+  APP.connectionStatus = 'connecting';
+  APP.connectionMessage = 'Launching ' + adapterId + '...';
+  APP.connectionLog = [{ ts: new Date().toLocaleTimeString(), status: 'connecting', message: 'Initiating connection to ' + adapterId }];
 
   try {
     const result = await invoke('choose_leader', { adapter_id: adapterId, project_dir: APP.projectDir });
     // Backend returns session_id string directly
     if (typeof result === 'string') APP.sessionId = result;
+    // If no event came from backend (mock mode), set connected
+    if (APP.connectionStatus === 'connecting') {
+      APP.connectionStatus = 'connected';
+      APP.connectionMessage = 'Connected to ' + adapterId;
+      APP.connectionType = (adapter.type || adapter.adapter_type) === 'cli' ? 'CLI process via PTY (pseudo-terminal)' : (adapter.type || adapter.adapter_type) === 'gui' ? 'GUI window embedded via Win32 SetParent + UI Automation' : 'HTTP API';
+      APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), status: 'connected', message: 'Successfully connected to ' + adapterId });
+    }
   } catch (e) {
-    // non-fatal in mock mode
+    // Set failed status if no event came from backend
+    if (APP.connectionStatus !== 'failed') {
+      APP.connectionStatus = 'failed';
+      APP.connectionMessage = 'Failed to connect: ' + e;
+      APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), status: 'failed', message: 'Connection failed: ' + e });
+    }
   }
 
-  APP.messages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type}). Describe what you want to build.` }];
+  APP.messages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type || adapter.adapter_type}). Describe what you want to build.` }];
   goTo('planning');
 }
 
@@ -1009,6 +1146,7 @@ async function handleMenuOpenFolder() {
   if (folder) {
     APP.projectDir = folder;
     try { await invoke('select_folder', { path: folder }); } catch (e) {}
+    try { await invoke('add_recent_project', { path: folder }); } catch (e) {}
     await loadAdaptersAndGo();
   }
 }
@@ -1089,6 +1227,19 @@ function disposeTerminals() {
 }
 
 async function subscribeEvents() {
+  await listen('leader-connection-status', ev => {
+    const data = ev.payload || ev;
+    APP.connectionStatus = data.status; // 'connecting', 'connected', 'failed'
+    APP.connectionMessage = data.message || '';
+    APP.connectionType = data.connection_type || '';
+
+    // Add to connection log
+    if (!APP.connectionLog) APP.connectionLog = [];
+    APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), ...data });
+
+    render();
+  });
+
   await listen('worker-output', ev => {
     const p = ev.payload || ev;
     const entry = APP.terminals.get(p.worker_id);
@@ -1365,12 +1516,30 @@ async function mockInvoke(cmd, args = {}) {
     return;
   }
 
+  if (cmd === 'open_folder_dialog') {
+    const input = prompt('Enter project folder path:');
+    return input || null;
+  }
+
+  if (cmd === 'get_recent_projects') {
+    return APP.recentProjects || [];
+  }
+
+  if (cmd === 'add_recent_project') {
+    const path = args.path;
+    APP.recentProjects = APP.recentProjects.filter(p => p !== path);
+    APP.recentProjects.unshift(path);
+    if (APP.recentProjects.length > 10) APP.recentProjects.length = 10;
+    return;
+  }
+
   if (cmd === 'get_adapters') {
     return [
       { id: 'opencode', type: 'cli', desc: 'OpenCode CLI - free AI coding assistant' },
       { id: 'aider', type: 'cli', desc: 'Aider - AI pair programming in terminal' },
       { id: 'claude-cli', type: 'cli', desc: 'Claude CLI - official Anthropic CLI' },
       { id: 'codex-cli', type: 'cli', desc: 'Codex CLI - OpenAI terminal tool' },
+      { id: 'antigravity', type: 'cli', desc: 'Antigravity - AI coding assistant CLI' },
       { id: 'cli-generic', type: 'cli', desc: 'Generic shell (cmd, powershell, bash)' },
       { id: 'cursor', type: 'gui', desc: 'Cursor - AI-first code editor' },
       { id: 'kiro', type: 'gui', desc: 'Kiro - AI IDE by Amazon' },
@@ -1381,6 +1550,13 @@ async function mockInvoke(cmd, args = {}) {
 
   if (cmd === 'choose_leader') {
     APP.sessionId = 'session_mock_' + Date.now();
+    // Simulate connection status events
+    setTimeout(() => emitMockEvent('leader-connection-status', { status: 'connecting', message: 'Launching ' + (args.adapter_id || 'unknown') + '...' }), 100);
+    setTimeout(() => {
+      const aType = APP.selectedAdapter ? (APP.selectedAdapter.type || APP.selectedAdapter.adapter_type) : 'cli';
+      const connType = aType === 'cli' ? 'CLI process via PTY (pseudo-terminal)' : aType === 'gui' ? 'GUI window embedded via Win32 SetParent + UI Automation' : 'HTTP API';
+      emitMockEvent('leader-connection-status', { status: 'connected', message: 'Successfully connected to ' + (args.adapter_id || 'unknown'), connection_type: connType, adapter_id: args.adapter_id });
+    }, 500);
     return APP.sessionId;
   }
 
@@ -1420,6 +1596,32 @@ async function mockInvoke(cmd, args = {}) {
   if (cmd === 'set_worker_model_cmd') {
     APP.workerModel = args.model;
     return;
+  }
+
+  if (cmd === 'fetch_leader_models') {
+    // Return leader-specific models in mock mode
+    const leaderId = APP.selectedAdapter ? APP.selectedAdapter.id : '';
+    const modelSets = {
+      'opencode': [
+        {id:'anthropic/claude-sonnet-4-20250514',name:'Claude Sonnet 4',provider:'Anthropic',free:true},
+        {id:'openai/gpt-4o-mini',name:'GPT-4o Mini',provider:'OpenAI',free:true},
+        {id:'google/gemini-2.5-flash',name:'Gemini 2.5 Flash',provider:'Google',free:true},
+      ],
+      'cursor': [
+        {id:'claude-sonnet-4',name:'Claude Sonnet 4',provider:'Cursor',free:false},
+        {id:'gpt-4o',name:'GPT-4o',provider:'Cursor',free:false},
+        {id:'gpt-4o-mini',name:'GPT-4o Mini',provider:'Cursor',free:true},
+        {id:'cursor-small',name:'Cursor Small',provider:'Cursor',free:true},
+      ],
+      'codex-cli': [
+        {id:'codex-mini',name:'Codex Mini',provider:'OpenAI',free:true},
+        {id:'o4-mini',name:'o4-mini',provider:'OpenAI',free:true},
+      ],
+      'antigravity': [
+        {id:'antigravity/default',name:'Antigravity Default',provider:'Antigravity',free:true},
+      ],
+    };
+    return modelSets[leaderId] || [{id:'default',name:'Default Model',provider:'Auto',free:true}];
   }
 
   if (cmd === 'get_available_models') {
@@ -1535,8 +1737,15 @@ document.addEventListener('keydown', (e) => {
 });
 
 // --- Boot ---
-subscribeEvents();
-render();
+(async function init() {
+  try {
+    APP.recentProjects = await invoke('get_recent_projects');
+  } catch(e) {
+    APP.recentProjects = [];
+  }
+  subscribeEvents();
+  render();
+})();
 
 </script>
 </body>
