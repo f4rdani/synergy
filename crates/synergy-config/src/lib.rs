@@ -98,7 +98,7 @@ impl Default for WorkersConfig {
             count: 6,
             adapter: "opencode".to_owned(),
             bin_path: "opencode".to_owned(),
-            model: "anthropic/claude-sonnet-4-20250514".to_owned(),
+            model: String::new(), // Empty = will query from OpenCode on first use
         }
     }
 }

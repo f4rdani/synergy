@@ -882,20 +882,143 @@ async fn set_worker_model_cmd(
     Ok(())
 }
 
-/// Get available OpenCode free models (hardcoded list since these are known).
+/// Query available models from a running OpenCode worker by sending `/model`.
+/// OpenCode responds with a list of free models when you type `/model` without arguments.
+/// Falls back to a cached/default list if no workers are running.
 #[tauri::command]
-async fn get_available_models() -> Result<Vec<ModelInfo>, String> {
-    Ok(vec![
-        ModelInfo { id: "anthropic/claude-sonnet-4-20250514".to_owned(), name: "Claude Sonnet 4".to_owned(), provider: "Anthropic".to_owned(), free: true },
-        ModelInfo { id: "anthropic/claude-haiku-3-5".to_owned(), name: "Claude Haiku 3.5".to_owned(), provider: "Anthropic".to_owned(), free: true },
-        ModelInfo { id: "openai/gpt-4o-mini".to_owned(), name: "GPT-4o Mini".to_owned(), provider: "OpenAI".to_owned(), free: true },
-        ModelInfo { id: "openai/gpt-4.1-mini".to_owned(), name: "GPT-4.1 Mini".to_owned(), provider: "OpenAI".to_owned(), free: true },
-        ModelInfo { id: "openai/o4-mini".to_owned(), name: "o4-mini".to_owned(), provider: "OpenAI".to_owned(), free: true },
-        ModelInfo { id: "google/gemini-2.5-flash".to_owned(), name: "Gemini 2.5 Flash".to_owned(), provider: "Google".to_owned(), free: true },
-        ModelInfo { id: "google/gemini-2.5-pro".to_owned(), name: "Gemini 2.5 Pro".to_owned(), provider: "Google".to_owned(), free: true },
-        ModelInfo { id: "deepseek/deepseek-chat".to_owned(), name: "DeepSeek V3".to_owned(), provider: "DeepSeek".to_owned(), free: true },
-        ModelInfo { id: "deepseek/deepseek-reasoner".to_owned(), name: "DeepSeek R1".to_owned(), provider: "DeepSeek".to_owned(), free: true },
-    ])
+async fn get_available_models(
+    state: State<'_, AppState>,
+) -> Result<Vec<ModelInfo>, String> {
+    // Try to query from a running worker
+    let orch_opt = state.orchestrator.lock().await;
+    if let Some(ref orch) = *orch_opt {
+        let mut workers = orch.workers.lock().await;
+        // Find an idle worker to query, or use worker 0
+        let worker_idx = workers
+            .iter()
+            .position(|w| w.status == AppStatus::Idle)
+            .or_else(|| if workers.is_empty() { None } else { Some(0) });
+        if let Some(idx) = worker_idx {
+            // Clear the buffer first
+            workers[idx].output_buffer.clear();
+
+            // Send /model command to query available models
+            if orch
+                .adapter
+                .send_command(&mut workers[idx].handle, "/model")
+                .await
+                .is_err()
+            {
+                drop(workers);
+                drop(orch_opt);
+                return Ok(fallback_models());
+            }
+
+            // Release locks and wait for output (give OpenCode time to respond)
+            drop(workers);
+            drop(orch_opt);
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+            // Read the output
+            let orch_opt2 = state.orchestrator.lock().await;
+            if let Some(ref orch2) = *orch_opt2 {
+                let workers2 = orch2.workers.lock().await;
+                if let Some(worker2) = workers2.get(idx) {
+                    let models = parse_model_list(&worker2.output_buffer);
+                    if !models.is_empty() {
+                        return Ok(models);
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback if no workers running
+    Ok(fallback_models())
+}
+
+/// Parse the output of `/model` command from OpenCode to extract model list.
+/// OpenCode typically shows models in a format like:
+/// ```text
+///   1. provider/model-name (free)
+///   * provider/model-name
+///   - provider/model-name
+/// ```
+fn parse_model_list(output: &str) -> Vec<ModelInfo> {
+    let mut models = Vec::new();
+    let clean = synergy_adapter::OpenCodeAdapter::strip_ansi(output);
+
+    for line in clean.lines() {
+        let trimmed = line.trim();
+        // Skip empty lines and headers
+        if trimmed.is_empty()
+            || trimmed.starts_with("Available")
+            || trimmed.starts_with("Model")
+            || trimmed.starts_with("Current")
+        {
+            continue;
+        }
+
+        // Try to extract model ID from various formats:
+        // "  1. anthropic/claude-sonnet-4 (free)"
+        // "  * anthropic/claude-sonnet-4"
+        // "  > anthropic/claude-sonnet-4 [selected]"
+        // "  - anthropic/claude-sonnet-4"
+        // "    anthropic/claude-sonnet-4"
+        let cleaned = trimmed
+            .trim_start_matches(|c: char| {
+                c.is_ascii_digit()
+                    || c == '.'
+                    || c == ')'
+                    || c == '*'
+                    || c == '>'
+                    || c == '-'
+                    || c == '['
+                    || c == ']'
+            })
+            .trim();
+
+        // Must contain a '/' to look like a model id (provider/model-name)
+        if let Some(model_id) = cleaned.split_whitespace().next() {
+            if model_id.contains('/') && model_id.len() > 3 {
+                let parts: Vec<&str> = model_id.splitn(2, '/').collect();
+                let provider = parts.first().unwrap_or(&"unknown").to_string();
+                let model_name = parts.get(1).unwrap_or(&model_id).to_string();
+                let is_free =
+                    trimmed.to_lowercase().contains("free") || !trimmed.to_lowercase().contains("paid");
+
+                // Avoid duplicates
+                if !models.iter().any(|m: &ModelInfo| m.id == model_id) {
+                    models.push(ModelInfo {
+                        id: model_id.to_owned(),
+                        name: model_name.replace('-', " ").replace('_', " "),
+                        provider: capitalize_first(&provider),
+                        free: is_free,
+                    });
+                }
+            }
+        }
+    }
+
+    models
+}
+
+fn capitalize_first(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+/// Fallback model list shown when no workers are running to query.
+fn fallback_models() -> Vec<ModelInfo> {
+    vec![ModelInfo {
+        id: "(query workers to see live list)".to_owned(),
+        name: "Start a session first to see available models".to_owned(),
+        provider: "Info".to_owned(),
+        free: true,
+    }]
 }
 
 pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
