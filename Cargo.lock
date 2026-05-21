@@ -3611,6 +3611,7 @@ dependencies = [
  "synergy-win32",
  "tauri",
  "tokio",
+ "toml 0.8.2",
 ]
 
 [[package]]

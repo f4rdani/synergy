@@ -14,10 +14,6 @@
     "core:window:allow-close",
     "core:window:allow-toggle-maximize",
     "core:window:allow-unminimize",
-    "core:window:allow-set-decorations",
-    "shell:default",
-    "shell:allow-execute",
-    "dialog:default",
-    "dialog:allow-open"
+    "core:window:allow-set-decorations"
   ]
 }

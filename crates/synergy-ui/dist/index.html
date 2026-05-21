@@ -342,13 +342,29 @@ const APP = {
   selectedLeaderModel: null,
 };
 
-// --- Tauri Bridge (real backend only, no mock) ---
+// --- Tauri Bridge ---
+// Tauri v2 exposes invoke via window.__TAURI__.core.invoke
+// We wait for it to be available with a small retry loop
+async function getTauriInvoke() {
+  // Try multiple Tauri v2 paths
+  if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+  if (window.__TAURI_INTERNALS__?.invoke) return window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
+  // Wait up to 2s for Tauri to inject
+  for (let i = 0; i < 20; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    if (window.__TAURI__?.core?.invoke) return window.__TAURI__.core.invoke.bind(window.__TAURI__.core);
+    if (window.__TAURI_INTERNALS__?.invoke) return window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
+  }
+  return null;
+}
+
 async function invoke(cmd, args = {}) {
-  if (!window.__TAURI__ || !window.__TAURI__.core || typeof window.__TAURI__.core.invoke !== 'function') {
-    throw new Error(`Backend not available. Cannot invoke '${cmd}'. Make sure the app is running in Tauri, not a browser.`);
+  const fn = await getTauriInvoke();
+  if (!fn) {
+    throw new Error(`Tauri backend not available. Cannot invoke '${cmd}'.`);
   }
   try {
-    return await window.__TAURI__.core.invoke(cmd, args);
+    return await fn(cmd, args);
   } catch (e) {
     console.error(`[Synergy] Command '${cmd}' failed:`, e);
     throw e;
@@ -356,33 +372,26 @@ async function invoke(cmd, args = {}) {
 }
 
 async function listen(ev, cb) {
-  if (!window.__TAURI__ || !window.__TAURI__.event || typeof window.__TAURI__.event.listen !== 'function') {
+  // Wait for Tauri event system to be available (same retry as invoke)
+  let listenFn = null;
+  for (let i = 0; i < 20; i++) {
+    listenFn = window.__TAURI__?.event?.listen
+      || window.__TAURI_INTERNALS__?.listen;
+    if (listenFn) break;
+    await new Promise(r => setTimeout(r, 100));
+  }
+  if (!listenFn) {
     console.warn(`[Synergy] Cannot listen to '${ev}' - Tauri event system not available`);
     return () => {};
   }
-  return window.__TAURI__.event.listen(ev, cb);
+  return listenFn.call(window.__TAURI__?.event || window.__TAURI_INTERNALS__, ev, cb);
 }
 
 async function openFolderDialog() {
-  // Always use the backend command for native OS dialog
   try {
     const result = await invoke('open_folder_dialog');
     return result || null;
   } catch (e) {
-    // If backend command fails, try Tauri dialog plugin as fallback
-    if (window.__TAURI__ && window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
-      try {
-        const result = await window.__TAURI__.dialog.open({
-          directory: true,
-          multiple: false,
-          title: 'Select Project Folder'
-        });
-        return result || null;
-      } catch (e2) {
-        console.error('All folder dialog methods failed:', e2);
-      }
-    }
-    // Show error to user instead of silent fallback to prompt
     showError('Could not open folder dialog: ' + e.message);
     return null;
   }
@@ -390,14 +399,30 @@ async function openFolderDialog() {
 
 // --- Error Display ---
 function showError(msg) {
+  // Remove any existing error overlay first
+  document.querySelectorAll('.synergy-error-overlay').forEach(el => el.remove());
+
   const overlay = document.createElement('div');
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999';
-  overlay.innerHTML = `<div style="background:var(--bg-surface);border:1px solid var(--red);border-radius:10px;padding:20px;max-width:400px;color:var(--text)">
-    <div style="font-weight:600;color:var(--red);margin-bottom:8px">Error</div>
-    <div style="font-size:12px;color:var(--text-sub);line-height:1.5">${msg}</div>
-    <button onclick="this.closest('div[style]').remove()" style="margin-top:12px;background:var(--surface0);border:1px solid var(--border);border-radius:6px;padding:6px 16px;color:var(--text);cursor:pointer">Close</button>
-  </div>`;
+  overlay.className = 'synergy-error-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;pointer-events:all';
+
+  const card = document.createElement('div');
+  card.style.cssText = 'background:var(--bg-surface);border:1px solid var(--red);border-radius:10px;padding:24px;max-width:420px;width:90%;color:var(--text);box-shadow:0 16px 48px rgba(0,0,0,0.5)';
+  card.innerHTML = `
+    <div style="font-weight:600;color:var(--red);margin-bottom:10px;font-size:14px">Error</div>
+    <div style="font-size:12px;color:var(--text-sub);line-height:1.6;word-break:break-word">${msg}</div>
+    <button id="synergy-error-close" style="margin-top:16px;background:var(--surface0);border:1px solid var(--border);border-radius:6px;padding:8px 20px;color:var(--text);cursor:pointer;font-size:12px">Close</button>
+  `;
+  overlay.appendChild(card);
   document.body.appendChild(overlay);
+
+  // Close on button click
+  document.getElementById('synergy-error-close').addEventListener('click', () => overlay.remove());
+  // Close on overlay background click
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+  // Close on Escape key
+  const onKey = (e) => { if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', onKey); } };
+  document.addEventListener('keydown', onKey);
 }
 
 // --- Screen transitions ---
@@ -619,10 +644,13 @@ function renderPlanning() {
   const msgs = APP.messages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
   return `
     ${connStatus}
-    <div class="chat-area" id="chat-area">${msgs}</div>
-    ${APP.planText ? '<button class="btn-review-plan" id="btn-review-plan">Review Plan</button>' : ''}
+    <div class="chat-area" id="chat-area">${msgs || '<div class="chat-msg system">Leader connected. Describe what you want to build, or type a numbered plan directly.</div>'}</div>
+    <div style="display:flex;gap:8px;padding:0 16px 8px;justify-content:flex-end">
+      ${APP.planText ? '<button class="btn-review-plan" id="btn-review-plan" style="margin:0">Review Plan (' + APP.planTasks.length + ' tasks)</button>' : ''}
+      <button id="btn-execute-direct" style="background:var(--surface0);border:1px solid var(--border);border-radius:8px;padding:8px 16px;color:var(--text-sub);font-size:12px;cursor:pointer" title="Execute your last message directly as a task">Execute Directly</button>
+    </div>
     <div class="chat-input-area">
-      <textarea id="chat-input" placeholder="Describe what you want to build..." rows="2"></textarea>
+      <textarea id="chat-input" placeholder="Describe what you want to build, or type:&#10;1. First task&#10;2. Second task&#10;..." rows="3"></textarea>
       <button class="chat-send-btn" id="btn-chat-send">Send</button>
     </div>
   `;
@@ -841,6 +869,10 @@ function attachEvents() {
   const btnReview = document.getElementById('btn-review-plan');
   if (btnReview) btnReview.addEventListener('click', () => goTo('plan_review'));
 
+  // Execute directly button — skip Leader plan, execute user's last message as tasks
+  const btnExecDirect = document.getElementById('btn-execute-direct');
+  if (btnExecDirect) btnExecDirect.addEventListener('click', handleExecuteDirect);
+
   // Plan review
   const btnApprove = document.getElementById('btn-approve-plan');
   if (btnApprove) btnApprove.addEventListener('click', handleApprovePlan);
@@ -948,7 +980,7 @@ async function handleAdapterSelect(adapterId) {
   render();
 
   try {
-    const result = await invoke('choose_leader', { adapter_id: adapterId, project_dir: APP.projectDir });
+    const result = await invoke('choose_leader', { adapterId: adapterId, projectDir: APP.projectDir });
     // Backend returns session_id string directly
     if (typeof result === 'string') APP.sessionId = result;
     // If no event came from backend, set connected
@@ -977,17 +1009,53 @@ async function handleChatSend() {
   const text = input.value.trim();
   input.value = '';
   APP.messages.push({ role: 'user', content: text });
-  APP.messages.push({ role: 'system', content: 'Leader is thinking...', streaming: true, typing: true });
+
+  // Auto-detect numbered plan in user's own message
+  const lines = text.split('\n');
+  const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
+  if (numbered.length >= 1) {
+    APP.planText = text;
+    APP.planTasks = numbered.map(m => m[2]);
+    APP.messages.push({ role: 'system', content: `Detected ${numbered.length} task(s) in your message. Click "Review Plan" to proceed, or "Execute Directly" to skip review.` });
+    render();
+    return;
+  }
+
+  APP.messages.push({ role: 'system', content: 'Sending to Leader...', streaming: true, typing: true });
   render();
 
   try {
     await invoke('send_to_leader', { message: text });
   } catch (e) {
-    // Remove typing indicator on error, show error
     APP.messages = APP.messages.filter(m => !m.typing);
-    APP.messages.push({ role: 'system', content: `Error sending message: ${e}` });
+    APP.messages.push({ role: 'system', content: `Error: ${e}` });
     render();
   }
+}
+
+async function handleExecuteDirect() {
+  // Take the last user message and execute it directly as a task
+  const lastUserMsg = [...APP.messages].reverse().find(m => m.role === 'user');
+  if (!lastUserMsg) {
+    showError('No message to execute. Type something first.');
+    return;
+  }
+
+  const text = lastUserMsg.content;
+  const lines = text.split('\n');
+  const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
+
+  if (numbered.length >= 1) {
+    // Use numbered list as plan
+    APP.planText = text;
+    APP.planTasks = numbered.map(m => m[2]);
+  } else {
+    // Single task
+    APP.planText = '1. ' + text;
+    APP.planTasks = [text];
+  }
+
+  await handleApprovePlan();
 }
 
 async function handleApprovePlan() {
@@ -1001,7 +1069,7 @@ async function handleApprovePlan() {
   }));
 
   try {
-    const result = await invoke('approve_plan', { session_id: APP.sessionId, plan_text: APP.planText });
+    const result = await invoke('approve_plan', { sessionId: APP.sessionId, planText: APP.planText });
     if (result) APP.logs.push('Workers spawned: ' + (Array.isArray(result) ? result.length : 0) + ' tasks queued');
   } catch (e) {
     showError('approve_plan failed: ' + e);
@@ -1082,16 +1150,19 @@ function attachMenuEvents() {
 
   // Window controls
   const btnMin = document.getElementById('btn-minimize');
-  if (btnMin) btnMin.addEventListener('click', () => {
-    if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().minimize();
+  if (btnMin) btnMin.addEventListener('click', async () => {
+    const fn = await getTauriInvoke();
+    if (fn) fn('minimize_window', {}).catch(()=>{});
   });
   const btnMax = document.getElementById('btn-maximize');
-  if (btnMax) btnMax.addEventListener('click', () => {
-    if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().toggleMaximize();
+  if (btnMax) btnMax.addEventListener('click', async () => {
+    const fn = await getTauriInvoke();
+    if (fn) fn('toggle_maximize_window', {}).catch(()=>{});
   });
   const btnClose = document.getElementById('btn-close');
-  if (btnClose) btnClose.addEventListener('click', () => {
-    if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().close();
+  if (btnClose) btnClose.addEventListener('click', async () => {
+    const fn = await getTauriInvoke();
+    if (fn) fn('close_window', {}).catch(()=>{});
   });
 
   // Bottom panel buttons
@@ -1144,7 +1215,7 @@ function handleMenuAction(action) {
       render();
       break;
     case 'exit':
-      if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().close();
+      invoke('close_window', {}).catch(()=>{});
       break;
     case 'zoom-in':
       document.body.style.fontSize = (parseInt(getComputedStyle(document.body).fontSize) + 1) + 'px';
@@ -1319,7 +1390,7 @@ function startPolling() {
   APP.pollInterval = setInterval(async () => {
     if (APP.screen !== 'executing') return;
     try {
-      const state = await invoke('get_state', { session_id: APP.sessionId });
+      const state = await invoke('get_state', { sessionId: APP.sessionId });
       if (state.tasks) APP.execTasks = state.tasks;
       if (state.workers) APP.workers = state.workers;
       updateProgressPanel();
@@ -1576,7 +1647,7 @@ document.addEventListener('keydown', (e) => {
   }
 
   render();
-  subscribeEvents();
+  await subscribeEvents();
 })();
 
 </script>

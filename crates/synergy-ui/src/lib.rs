@@ -572,8 +572,11 @@ async fn choose_leader<R: Runtime>(
     adapter_id: String,
     project_dir: String,
 ) -> Result<String, String> {
-    // Initialize DB if not already done
-    let db_path = format!("{}/.synergy/synergy.db", &project_dir);
+    // Create .synergy dir inside project_dir and open DB there
+    let synergy_dir = format!("{}/.synergy", &project_dir);
+    std::fs::create_dir_all(&synergy_dir)
+        .map_err(|e| format!("Failed to create .synergy dir: {e}"))?;
+    let db_path = format!("{}/synergy.db", &synergy_dir);
     let db = Database::open(&db_path).map_err(|e| format!("Failed to open database: {e:#}"))?;
     db.insert_project("p1", "Project", &project_dir).ok(); // ignore duplicate
 
@@ -598,8 +601,11 @@ async fn choose_leader<R: Runtime>(
     // Launch the Leader process (PTY for CLI, placeholder for GUI)
     // Resolve actual binary from adapters.toml (e.g. "claude-cli" -> "claude")
     let bin_path = resolve_adapter_bin(&adapter_id);
+
+    // For GUI adapters, check if the app is already running before trying to launch
+    let is_gui = adapter.app_type() == AppType::Gui;
     let launch_config = LaunchConfig {
-        bin_path,
+        bin_path: bin_path.clone(),
         args: Vec::new(),
         cwd: Some(project_dir.clone()),
         proxy_addr: None,
@@ -607,7 +613,7 @@ async fn choose_leader<R: Runtime>(
 
     let handle = match adapter.launch(&launch_config).await {
         Ok(h) => {
-            let conn_type = if adapter.app_type() == AppType::Gui {
+            let conn_type = if is_gui {
                 "GUI window embedded via Win32 SetParent + UI Automation"
             } else {
                 "CLI process via PTY (pseudo-terminal)"
@@ -624,16 +630,24 @@ async fn choose_leader<R: Runtime>(
             h
         }
         Err(e) => {
+            // For GUI apps, give a helpful error message
+            let err_msg = if is_gui {
+                format!(
+                    "Could not launch '{}'. Make sure {} is installed and running. Error: {e:#}",
+                    bin_path, adapter_id
+                )
+            } else {
+                format!("Failed to launch leader: {e:#}")
+            };
             let _ = app.emit(
                 "leader-connection-status",
                 serde_json::json!({
                     "status": "failed",
-                    "message": format!("Failed to connect: {}", e),
+                    "message": format!("Failed to connect: {}", &err_msg),
                     "adapter_id": &adapter_id,
-                    "error": format!("{e:#}")
                 }),
             );
-            return Err(format!("Failed to launch leader: {e:#}"));
+            return Err(err_msg);
         }
     };
 
@@ -1364,6 +1378,35 @@ async fn add_recent_project(path: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Minimize the main window.
+#[tauri::command]
+async fn minimize_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.get_webview_window("main")
+        .ok_or("window not found")?
+        .minimize()
+        .map_err(|e| e.to_string())
+}
+
+/// Toggle maximize/restore the main window.
+#[tauri::command]
+async fn toggle_maximize_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let win = app.get_webview_window("main").ok_or("window not found")?;
+    if win.is_maximized().unwrap_or(false) {
+        win.unmaximize().map_err(|e| e.to_string())
+    } else {
+        win.maximize().map_err(|e| e.to_string())
+    }
+}
+
+/// Close the main window.
+#[tauri::command]
+async fn close_window<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    app.get_webview_window("main")
+        .ok_or("window not found")?
+        .close()
+        .map_err(|e| e.to_string())
+}
+
 pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .setup(|app| {
@@ -1399,6 +1442,9 @@ pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             get_available_models,
             open_folder_dialog,
             get_recent_projects,
-            add_recent_project
+            add_recent_project,
+            minimize_window,
+            toggle_maximize_window,
+            close_window
         ])
 }
