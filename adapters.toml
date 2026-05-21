@@ -27,10 +27,11 @@ bin  = "codex"
 desc = "Codex CLI — OpenAI terminal tool"
 
 [[adapter]]
-id   = "antigravity"
-type = "cli"
-bin  = "antigravity"
-desc = "Antigravity — AI coding assistant CLI"
+id           = "antigravity"
+type         = "gui"
+bin          = "Antigravity.exe"
+window_title = "Antigravity"
+desc         = "Antigravity - AI coding IDE"
 
 [[adapter]]
 id   = "cli-generic"
