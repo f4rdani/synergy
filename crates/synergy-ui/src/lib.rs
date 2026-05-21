@@ -595,6 +595,16 @@ async fn choose_leader<R: Runtime>(
         flow.set_leader(adapter_id, adapter.clone(), handle, session_id.clone())?;
     }
 
+    // After leader is connected, send the system prompt to teach it how to plan
+    {
+        let mut flow = state.session_flow.lock().await;
+        let prompt = synergy_core::leader::leader_system_prompt(
+            &project_dir,
+            cfg.workers.count,
+        );
+        flow.send_to_leader(&prompt).await.ok(); // best effort
+    }
+
     // Store DB handle
     let shared_db = Arc::new(Mutex::new(db));
     *state.db.lock().await = Some(shared_db);
@@ -662,9 +672,13 @@ async fn approve_plan<R: Runtime>(
     let cfg = SynergyConfig::load_default().unwrap_or_default();
     let worker_adapter_id = cfg.workers.adapter.clone();
     let worker_bin = cfg.workers.bin_path.clone();
-    let worker_count = cfg.workers.count;
+    let max_workers = cfg.workers.count;
 
-    let proxy_configs = cfg.proxy.to_proxy_configs(worker_count);
+    // Calculate how many workers to spawn based on independent (parallelizable) tasks
+    let independent_task_count = tasks.iter().filter(|t| t.depends_on.is_empty()).count();
+    let actual_worker_count = (independent_task_count as u32).min(max_workers);
+
+    let proxy_configs = cfg.proxy.to_proxy_configs(actual_worker_count);
     let pm = ProxyManager::new(proxy_configs);
 
     let orchestrator = Orchestrator::with_shared_db(db_arc.clone(), pm, session_id.clone())
@@ -677,7 +691,7 @@ async fn approve_plan<R: Runtime>(
     };
 
     orchestrator
-        .spawn_workers(worker_count as usize, &worker_bin, project_dir.as_deref())
+        .spawn_workers(actual_worker_count as usize, &worker_bin, project_dir.as_deref())
         .await
         .map_err(|e| format!("Failed to spawn workers: {e:#}"))?;
 
