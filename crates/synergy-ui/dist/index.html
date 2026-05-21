@@ -101,8 +101,47 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .adapter-conn-info{font-size:10px;color:var(--teal);margin-top:6px;display:flex;align-items:center;gap:4px}
 .conn-icon{font-family:'JetBrains Mono',monospace;font-size:11px}
 
-/* Planning Chat */
+/* Planning Chat - Kiro-style */
 .planning-screen{flex-direction:column;background:var(--bg)}
+.planning-topbar{display:flex;align-items:center;gap:10px;padding:8px 14px;background:var(--bg-surface);border-bottom:1px solid var(--border);min-height:44px}
+.planning-topbar .leader-badge{display:flex;align-items:center;gap:8px}
+.planning-topbar .leader-avatar{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--mauve));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;flex-shrink:0}
+.planning-topbar .leader-meta{display:flex;flex-direction:column;line-height:1.2}
+.planning-topbar .leader-meta-name{font-size:12px;font-weight:600;color:var(--text)}
+.planning-topbar .leader-meta-status{font-size:10px;color:var(--green);display:flex;align-items:center;gap:4px}
+.planning-topbar .leader-meta-status::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 4px var(--green)}
+.planning-topbar-spacer{flex:1}
+.planning-topbar-action{display:flex;align-items:center;gap:5px;background:var(--surface0);border:1px solid var(--border);border-radius:6px;padding:5px 10px;color:var(--text);font-size:11px;cursor:pointer;transition:all .15s}
+.planning-topbar-action:hover{border-color:var(--accent);color:var(--accent)}
+.planning-topbar-action svg{width:13px;height:13px}
+.planning-topbar-action.model-pill{color:var(--teal);font-family:'JetBrains Mono',monospace}
+.planning-topbar-action.model-pill:hover{border-color:var(--teal);color:var(--teal)}
+
+.planning-body{flex:1;display:flex;min-height:0}
+.planning-terminal-wrap{flex:1;background:var(--bg-overlay);min-width:0;display:flex;flex-direction:column}
+.planning-terminal{flex:1;min-height:0;padding:8px;background:#11111b}
+
+.planning-context-panel{width:240px;border-left:1px solid var(--border);background:var(--bg-surface);display:flex;flex-direction:column;overflow-y:auto}
+.context-section{padding:10px 12px;border-bottom:1px solid var(--border)}
+.context-section-title{font-size:10px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.context-item{display:flex;align-items:center;gap:6px;padding:4px 6px;border-radius:4px;font-size:11px;color:var(--text-sub);cursor:default}
+.context-item:hover{background:rgba(255,255,255,0.04)}
+.context-item-icon{flex-shrink:0;width:14px;text-align:center}
+.context-add-btn{display:flex;align-items:center;justify-content:center;gap:4px;width:100%;padding:5px;background:transparent;border:1px dashed var(--border);border-radius:4px;color:var(--text-dim);font-size:11px;cursor:pointer;margin-top:4px}
+.context-add-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+.planning-actions-row{display:flex;gap:8px;padding:10px 14px;background:var(--bg-surface);border-top:1px solid var(--border)}
+.planning-action-btn{flex:1;background:var(--surface0);border:1px solid var(--border);border-radius:6px;padding:8px 12px;color:var(--text);font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.planning-action-btn:hover{border-color:var(--accent);background:var(--bg-overlay)}
+.planning-action-btn.primary{background:var(--accent);color:var(--bg-crust);border-color:var(--accent);font-weight:600}
+.planning-action-btn.primary:hover{opacity:.9;background:var(--accent)}
+
+.planning-input-area{padding:10px 14px;background:var(--bg-surface);border-top:1px solid var(--border);display:flex;gap:8px;align-items:flex-end}
+.planning-input-area textarea{flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:8px;padding:10px 12px;color:var(--text);font-family:inherit;font-size:13px;resize:none;outline:none;min-height:42px;max-height:120px;line-height:1.4}
+.planning-input-area textarea:focus{border-color:var(--accent)}
+.planning-input-area .send-btn{align-self:flex-end;background:var(--accent);border:none;border-radius:8px;padding:10px 18px;color:var(--bg-crust);font-weight:600;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px}
+.planning-input-area .send-btn:hover{opacity:.9}
+.planning-input-area .send-btn:disabled{opacity:.4;cursor:not-allowed}
 .planning-header{padding:12px 16px;border-bottom:1px solid var(--border);background:var(--bg-surface)}
 .planning-conn-status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text)}
 .planning-conn-status strong{color:var(--accent)}
@@ -340,6 +379,7 @@ const APP = {
   connectionLog: [],
   leaderModels: [],
   selectedLeaderModel: null,
+  showProviderList: false,
 };
 
 // --- Tauri Bridge ---
@@ -431,16 +471,32 @@ function goTo(screen) {
   render();
   if (screen === 'executing') {
     initExecutingScreen();
+  } else if (screen === 'planning') {
+    requestAnimationFrame(() => initLeaderTerminal());
   }
 }
 
 // --- Main Render ---
 function render() {
   const app = document.getElementById('app');
+  // Save terminal reference before innerHTML clears DOM
+  const prevLeaderTerm = APP.leaderTerm;
   app.innerHTML = renderMenubar() + renderScreens() + renderBottomPanel() + renderStatusbar() + renderSettingsModal() + renderModelSelector();
   attachEvents();
   attachMenuEvents();
   if (APP.showTerminal) initIntegratedTerminal();
+
+  // Re-attach leader terminal if we're in planning and it was attached before
+  if (APP.screen === 'planning') {
+    const container = document.getElementById('leader-term');
+    if (container && prevLeaderTerm) {
+      // xterm element was detached by innerHTML, re-open into new container
+      try { prevLeaderTerm.term.open(container); prevLeaderTerm.fit.fit(); } catch (e) {}
+      APP.leaderTerm = prevLeaderTerm;
+    } else if (container && !APP.leaderTerm) {
+      requestAnimationFrame(() => initLeaderTerminal());
+    }
+  }
 }
 
 function renderMenubar() {
@@ -586,6 +642,42 @@ function renderWelcome() {
 }
 
 function renderLeaderSelect() {
+  // Find the bundled OpenCode adapter (default Leader)
+  const defaultAdapter = APP.adapters.find(a => a.id === 'opencode')
+    || APP.adapters.find(a => a.id === 'cli-opencode')
+    || APP.adapters[0];
+
+  // If user hasn't expanded the "change provider" view yet, show simple Continue/Change UI
+  if (!APP.showProviderList) {
+    const adapterName = defaultAdapter ? defaultAdapter.id : 'OpenCode';
+    const adapterDesc = defaultAdapter ? defaultAdapter.desc : 'Bundled OpenCode CLI (free models, no API key required)';
+
+    return `
+      <div class="screen-title">Leader AI</div>
+      <div class="screen-subtitle">By default, Synergy uses the bundled OpenCode CLI as the Leader. You can continue with the default or choose another provider.</div>
+
+      <div style="margin-top:24px;background:var(--bg-surface);border:2px solid var(--accent);border-radius:12px;padding:20px;box-shadow:0 0 0 4px rgba(137,180,250,0.1)">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px">
+          <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--accent),var(--mauve));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:14px">OC</div>
+          <div style="flex:1">
+            <div style="font-size:15px;font-weight:600;color:var(--text)">${escapeHtml(adapterName)}</div>
+            <div style="font-size:12px;color:var(--text-sub);margin-top:2px">${escapeHtml(adapterDesc)}</div>
+          </div>
+          <span class="adapter-type-badge badge-cli" style="font-size:10px">DEFAULT</span>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:8px;padding-top:10px;border-top:1px solid var(--border)">
+          &gt;_ Connects via PTY (terminal process) · Bundled with Synergy · Free models available
+        </div>
+      </div>
+
+      <div style="display:flex;gap:12px;margin-top:20px">
+        <button class="btn-primary" id="btn-continue-default" style="flex:1">Continue with ${escapeHtml(adapterName)}</button>
+        <button class="btn-secondary" id="btn-change-provider" style="flex:1">Change Provider</button>
+      </div>
+    `;
+  }
+
+  // Expanded view: show all adapters
   const cards = APP.adapters.map(a => {
     const aType = a.type || a.adapter_type;
     const connInfo = aType === 'cli'
@@ -594,10 +686,11 @@ function renderLeaderSelect() {
       ? 'Connects via Win32 window embedding'
       : 'Connects via HTTP API';
     const connIcon = aType === 'cli' ? '&gt;_' : aType === 'gui' ? '&#9633;' : '&#9889;';
+    const isDefault = defaultAdapter && a.id === defaultAdapter.id;
 
     return `<div class="adapter-card${APP.selectedAdapter && APP.selectedAdapter.id === a.id ? ' selected' : ''}" data-adapter-id="${a.id}">
       <div class="adapter-card-header">
-        <span class="adapter-card-id">${a.id}</span>
+        <span class="adapter-card-id">${a.id}${isDefault ? ' <span style="font-size:9px;color:var(--accent);background:rgba(137,180,250,0.12);padding:1px 6px;border-radius:4px;margin-left:4px;text-transform:uppercase;letter-spacing:.4px">default</span>' : ''}</span>
         <span class="adapter-type-badge badge-${aType}">${aType}</span>
       </div>
       <div class="adapter-card-desc">${a.desc}</div>
@@ -606,8 +699,11 @@ function renderLeaderSelect() {
   }).join('');
 
   return `
-    <div class="screen-title">Select Leader AI</div>
-    <div class="screen-subtitle">Choose which AI application or CLI will orchestrate this session. The Leader discusses with you, creates plans, and reviews worker output.</div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
+      <button class="btn-secondary" id="btn-back-to-default" style="padding:6px 12px;font-size:11px">&larr; Back</button>
+      <div class="screen-title" style="margin:0">Choose Leader Provider</div>
+    </div>
+    <div class="screen-subtitle">Select which AI application or CLI will orchestrate this session.</div>
     <div class="adapters-grid">${cards}</div>
     <div style="margin-top:16px;padding:12px;background:var(--bg-overlay);border-radius:8px;border:1px solid var(--border)">
       <div style="font-size:11px;color:var(--text-sub);line-height:1.6">
@@ -619,39 +715,82 @@ function renderLeaderSelect() {
 
 function renderPlanning() {
   const leaderName = APP.selectedAdapter ? APP.selectedAdapter.id : 'AI';
-  const statusDot = APP.connectionStatus === 'connected' ? 'connected' : APP.connectionStatus === 'connecting' ? 'connecting' : 'disconnected';
-  const statusClass = 'conn-dot ' + statusDot;
+  const adapterDesc = APP.selectedAdapter ? APP.selectedAdapter.desc : '';
+  const projectName = APP.projectDir ? APP.projectDir.split(/[\\/]/).pop() : 'project';
+  const modelLabel = APP.selectedLeaderModel || 'default';
+  const taskCount = APP.planTasks.length;
 
-  const connLog = (APP.connectionLog || []).map(l =>
-    `<div class="conn-log-entry"><span class="conn-log-time">${l.ts}</span><span class="conn-log-status conn-${l.status}">${l.status}</span><span class="conn-log-msg">${escapeHtml(l.message)}</span></div>`
-  ).join('');
-
-  const modelBtn = APP.connectionStatus === 'connected'
-    ? `<button class="btn-fetch-models" id="btn-fetch-leader-models">Models (${APP.selectedLeaderModel || 'default'})</button>`
-    : '';
-
-  const connStatus = `<div class="planning-header">
-    <div class="planning-conn-status">
-      <span class="${statusClass}"></span>
-      ${APP.connectionStatus === 'connected' ? 'Connected to' : APP.connectionStatus === 'connecting' ? 'Connecting to' : 'Disconnected from'} <strong>${leaderName}</strong>
-      ${APP.connectionType ? `<span class="conn-type-badge">${escapeHtml(APP.connectionType)}</span>` : ''}
-      ${modelBtn}
-    </div>
-    <div class="planning-hint">Describe what you want to build. The Leader will create a plan and assign tasks to Workers.</div>
-    ${connLog ? `<div class="conn-log">${connLog}</div>` : ''}
-  </div>`;
-
-  const msgs = APP.messages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
   return `
-    ${connStatus}
-    <div class="chat-area" id="chat-area">${msgs || '<div class="chat-msg system">Leader connected. Describe what you want to build, or type a numbered plan directly.</div>'}</div>
-    <div style="display:flex;gap:8px;padding:0 16px 8px;justify-content:flex-end">
-      ${APP.planText ? '<button class="btn-review-plan" id="btn-review-plan" style="margin:0">Review Plan (' + APP.planTasks.length + ' tasks)</button>' : ''}
-      <button id="btn-execute-direct" style="background:var(--surface0);border:1px solid var(--border);border-radius:8px;padding:8px 16px;color:var(--text-sub);font-size:12px;cursor:pointer" title="Execute your last message directly as a task">Execute Directly</button>
+    <div class="planning-topbar">
+      <div class="leader-badge">
+        <div class="leader-avatar">${escapeHtml(leaderName.slice(0, 2).toUpperCase())}</div>
+        <div class="leader-meta">
+          <div class="leader-meta-name">${escapeHtml(leaderName)}</div>
+          <div class="leader-meta-status">${APP.connectionStatus === 'connected' ? 'Connected' : APP.connectionStatus}</div>
+        </div>
+      </div>
+      <div class="planning-topbar-spacer"></div>
+      <button class="planning-topbar-action model-pill" id="btn-fetch-leader-models" title="Change Leader Model">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/></svg>
+        <span>${escapeHtml(modelLabel)}</span>
+      </button>
+      <button class="planning-topbar-action" id="btn-clear-terminal" title="Clear Terminal">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/><path d="M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        Clear
+      </button>
+      <button class="planning-topbar-action" id="btn-back-leader" title="Change Leader">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+        Back
+      </button>
     </div>
-    <div class="chat-input-area">
-      <textarea id="chat-input" placeholder="Describe what you want to build, or type:&#10;1. First task&#10;2. Second task&#10;..." rows="3"></textarea>
-      <button class="chat-send-btn" id="btn-chat-send">Send</button>
+
+    <div class="planning-body">
+      <div class="planning-terminal-wrap">
+        <div class="planning-terminal" id="leader-term"></div>
+      </div>
+
+      <div class="planning-context-panel">
+        <div class="context-section">
+          <div class="context-section-title">Project Context</div>
+          <div class="context-item"><span class="context-item-icon">&#128193;</span>${escapeHtml(projectName)}</div>
+          <div class="context-item" style="font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace">${escapeHtml(APP.projectDir || '')}</div>
+        </div>
+
+        <div class="context-section">
+          <div class="context-section-title">Workers Pool</div>
+          <div class="context-item"><span class="context-item-icon">&#9881;</span>${APP.workerCount} OpenCode workers</div>
+          <div class="context-item" style="font-size:10px;color:var(--text-dim)">Each with isolated proxy IP</div>
+        </div>
+
+        ${taskCount > 0 ? `
+        <div class="context-section">
+          <div class="context-section-title">Detected Plan</div>
+          <div class="context-item" style="color:var(--green)"><span class="context-item-icon">&#10003;</span>${taskCount} task${taskCount > 1 ? 's' : ''} ready</div>
+        </div>` : ''}
+
+        <div class="context-section">
+          <div class="context-section-title">Quick Actions</div>
+          <button class="context-add-btn" id="btn-quick-readme">+ Add README context</button>
+          <button class="context-add-btn" id="btn-quick-files" style="margin-top:4px">+ Browse files</button>
+        </div>
+      </div>
+    </div>
+
+    ${taskCount > 0 ? `
+    <div class="planning-actions-row">
+      <button class="planning-action-btn primary" id="btn-execute-plan">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Execute ${taskCount} Task${taskCount > 1 ? 's' : ''}
+      </button>
+      <button class="planning-action-btn" id="btn-revise-plan">Revise Plan</button>
+    </div>` : ''}
+
+    <div class="planning-input-area">
+      <textarea id="chat-input" placeholder="Describe what you want to build, or paste a numbered plan..." rows="2"></textarea>
+      <button class="send-btn" id="btn-chat-send">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        Send
+      </button>
     </div>
   `;
 }
@@ -800,18 +939,25 @@ function renderWorkerCells() {
 }
 
 function renderLeaderPanel() {
+  const adapterName = APP.selectedAdapter ? APP.selectedAdapter.id : 'Leader';
+  const adapterDesc = APP.selectedAdapter ? APP.selectedAdapter.desc : '';
   const msgs = APP.leaderMessages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
+
   return `
     <div class="leader-header-bar">
       <div class="leader-icon">L</div>
       <div class="leader-info">
-        <div class="leader-name">${APP.selectedAdapter ? APP.selectedAdapter.id : 'Leader'}</div>
-        <div class="leader-model-lbl">${APP.selectedAdapter ? APP.selectedAdapter.desc : ''}</div>
+        <div class="leader-name">${escapeHtml(adapterName)}</div>
+        <div class="leader-model-lbl">${escapeHtml(adapterDesc)}</div>
       </div>
     </div>
-    <div class="leader-chat-area" id="leader-chat-area">${msgs}</div>
+    <div class="leader-chat-area" id="leader-chat-area">${msgs || '<div class="chat-msg system">Leader is connected. Send a message to delegate new tasks or ask questions.</div>'}</div>
+    ${APP.planTasks && APP.planTasks.length > 0 && APP.execTasks.length === 0 ? `
+    <div style="padding:10px;background:var(--bg-overlay);border-top:1px solid var(--border);text-align:center">
+      <button class="btn-primary" id="btn-approve-plan-inline">Approve &amp; Execute ${APP.planTasks.length} Tasks</button>
+    </div>` : ''}
     <div class="leader-chat-input">
-      <textarea id="leader-input" placeholder="Message Leader..." rows="1"></textarea>
+      <textarea id="leader-input" placeholder="Message Leader..." rows="2"></textarea>
       <button id="btn-leader-send">Send</button>
     </div>
   `;
@@ -861,6 +1007,30 @@ function attachEvents() {
     card.addEventListener('click', () => handleAdapterSelect(card.dataset.adapterId));
   });
 
+  // Continue with default Leader (OpenCode bundled)
+  const btnContinueDefault = document.getElementById('btn-continue-default');
+  if (btnContinueDefault) btnContinueDefault.addEventListener('click', () => {
+    const def = APP.adapters.find(a => a.id === 'opencode')
+      || APP.adapters.find(a => a.id === 'cli-opencode')
+      || APP.adapters[0];
+    if (def) handleAdapterSelect(def.id);
+    else showError('No default adapter available. OpenCode may not be installed.');
+  });
+
+  // Show provider list
+  const btnChangeProvider = document.getElementById('btn-change-provider');
+  if (btnChangeProvider) btnChangeProvider.addEventListener('click', () => {
+    APP.showProviderList = true;
+    render();
+  });
+
+  // Back to default view
+  const btnBackToDefault = document.getElementById('btn-back-to-default');
+  if (btnBackToDefault) btnBackToDefault.addEventListener('click', () => {
+    APP.showProviderList = false;
+    render();
+  });
+
   // Planning
   const btnSend = document.getElementById('btn-chat-send');
   if (btnSend) btnSend.addEventListener('click', handleChatSend);
@@ -869,7 +1039,34 @@ function attachEvents() {
   const btnReview = document.getElementById('btn-review-plan');
   if (btnReview) btnReview.addEventListener('click', () => goTo('plan_review'));
 
-  // Execute directly button — skip Leader plan, execute user's last message as tasks
+  // New Kiro-style planning buttons
+  const btnExecutePlan = document.getElementById('btn-execute-plan');
+  if (btnExecutePlan) btnExecutePlan.addEventListener('click', handleApprovePlan);
+  const btnRevisePlan = document.getElementById('btn-revise-plan');
+  if (btnRevisePlan) btnRevisePlan.addEventListener('click', () => {
+    APP.planTasks = [];
+    APP.planText = '';
+    APP.leaderRawBuffer = '';
+    render();
+  });
+  const btnClearTerm = document.getElementById('btn-clear-terminal');
+  if (btnClearTerm) btnClearTerm.addEventListener('click', () => {
+    if (APP.leaderTerm) APP.leaderTerm.term.clear();
+    APP.leaderRawBuffer = '';
+  });
+  const btnBackLeader = document.getElementById('btn-back-leader');
+  if (btnBackLeader) btnBackLeader.addEventListener('click', () => {
+    if (confirm('Disconnect Leader and choose a different one?')) {
+      if (APP.leaderTerm) { try { APP.leaderTerm.term.dispose(); } catch (e) {} APP.leaderTerm = null; }
+      APP.selectedAdapter = null;
+      APP.connectionStatus = 'disconnected';
+      APP.messages = [];
+      APP.leaderRawBuffer = '';
+      goTo('leader_select');
+    }
+  });
+
+  // Execute directly button
   const btnExecDirect = document.getElementById('btn-execute-direct');
   if (btnExecDirect) btnExecDirect.addEventListener('click', handleExecuteDirect);
 
@@ -888,6 +1085,10 @@ function attachEvents() {
   if (btnLeaderSend) btnLeaderSend.addEventListener('click', handleLeaderSend);
   const leaderInput = document.getElementById('leader-input');
   if (leaderInput) leaderInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleLeaderSend(); } });
+  
+  // Inline approve plan button
+  const btnApproveInline = document.getElementById('btn-approve-plan-inline');
+  if (btnApproveInline) btnApproveInline.addEventListener('click', handleApprovePlan);
 
   // Settings modal
   document.getElementById('btn-settings-close')?.addEventListener('click', () => {
@@ -967,6 +1168,7 @@ async function loadAdaptersAndGo() {
     showError('Failed to load adapters: ' + e);
     APP.adapters = [];
   }
+  APP.showProviderList = false; // start with default view
   goTo('leader_select');
 }
 
@@ -999,8 +1201,8 @@ async function handleAdapterSelect(adapterId) {
     return;
   }
 
-  APP.messages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type || adapter.adapter_type}). Describe what you want to build.` }];
-  goTo('planning');
+  APP.leaderMessages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type || adapter.adapter_type}). Describe what you want to build.` }];
+  goTo('executing');
 }
 
 async function handleChatSend() {
@@ -1008,6 +1210,12 @@ async function handleChatSend() {
   if (!input || !input.value.trim()) return;
   const text = input.value.trim();
   input.value = '';
+
+  // Echo user message to the leader terminal
+  if (APP.leaderTerm) {
+    APP.leaderTerm.term.write(`\r\n\x1b[36m> ${text}\x1b[0m\r\n`);
+  }
+
   APP.messages.push({ role: 'user', content: text });
 
   // Auto-detect numbered plan in user's own message
@@ -1016,20 +1224,15 @@ async function handleChatSend() {
   if (numbered.length >= 1) {
     APP.planText = text;
     APP.planTasks = numbered.map(m => m[2]);
-    APP.messages.push({ role: 'system', content: `Detected ${numbered.length} task(s) in your message. Click "Review Plan" to proceed, or "Execute Directly" to skip review.` });
-    render();
-    return;
   }
 
-  APP.messages.push({ role: 'system', content: 'Sending to Leader...', streaming: true, typing: true });
-  render();
-
   try {
-    await invoke('send_to_leader', { message: text });
+    // For OpenCode TUI, send the message + Enter
+    await invoke('send_to_leader', { message: text + '\r' });
   } catch (e) {
-    APP.messages = APP.messages.filter(m => !m.typing);
-    APP.messages.push({ role: 'system', content: `Error: ${e}` });
-    render();
+    if (APP.leaderTerm) {
+      APP.leaderTerm.term.write(`\r\n\x1b[31mError: ${e}\x1b[0m\r\n`);
+    }
   }
 }
 
@@ -1061,7 +1264,7 @@ async function handleExecuteDirect() {
 async function handleApprovePlan() {
   APP.execTasks = APP.planTasks.map((t, i) => ({ id: 'task_' + i, title: t, status: 'pending', worker_id: null }));
   APP.startTime = Date.now();
-  APP.leaderMessages = [{ role: 'system', content: 'Plan approved. Distributing tasks to Workers...' }];
+  APP.leaderMessages.push({ role: 'system', content: 'Plan approved. Distributing tasks to Workers...' });
   APP.logs = [];
   // Initialize workers array with idle state
   APP.workers = Array.from({ length: APP.workerCount }, (_, i) => ({
@@ -1102,6 +1305,9 @@ function handleNewSession() {
   APP.leaderMessages = [];
   APP.startTime = null;
   APP.showTerminal = false;
+  APP.showProviderList = false;
+  APP.connectionStatus = 'disconnected';
+  APP.connectionLog = [];
   if (APP.integratedTerm) { APP.integratedTerm.dispose(); APP.integratedTerm = null; }
   disposeTerminals();
   if (APP.pollInterval) { clearInterval(APP.pollInterval); APP.pollInterval = null; }
@@ -1114,12 +1320,27 @@ async function handleLeaderSend() {
   const text = input.value.trim();
   input.value = '';
   APP.leaderMessages.push({ role: 'user', content: text });
+
+  // Auto-detect numbered plan in user's own message
+  const lines = text.split('\n');
+  const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
+  if (numbered.length >= 1) {
+    APP.planText = text;
+    APP.planTasks = numbered.map(m => m[2]);
+    render();
+    return;
+  }
+
+  APP.leaderMessages.push({ role: 'system', content: 'Sending to Leader...', streaming: true, typing: true });
+  updateLeaderChat();
+
   try {
     await invoke('send_to_leader', { message: text });
   } catch (e) {
+    APP.leaderMessages = APP.leaderMessages.filter(m => !m.typing);
     APP.leaderMessages.push({ role: 'system', content: `Error sending message: ${e}` });
+    updateLeaderChat();
   }
-  updateLeaderChat();
 }
 
 // --- Menu Bar Logic ---
@@ -1285,8 +1506,50 @@ function initExecutingScreen() {
     for (let i = 0; i < APP.workerCount; i++) {
       initTerminal(i);
     }
+    const isCli = APP.selectedAdapter && APP.selectedAdapter.type === 'cli';
+    if (isCli) {
+      initLeaderTerminal();
+    }
   });
   startPolling();
+}
+
+function initLeaderTerminal() {
+  const container = document.getElementById('leader-term') || document.getElementById('leader-term-container');
+  if (!container || APP.leaderTerm) return;
+  const term = new Terminal({
+    fontFamily: '"JetBrains Mono", monospace',
+    fontSize: 12,
+    lineHeight: 1.3,
+    convertEol: true,
+    cursorBlink: true,
+    scrollback: 5000,
+    theme: {
+      background: '#11111b',
+      foreground: '#cdd6f4',
+      cursor: '#89b4fa',
+      selectionBackground: 'rgba(137,180,250,.25)',
+      black: '#45475a', red: '#f38ba8', green: '#a6e3a1', yellow: '#f9e2af',
+      blue: '#89b4fa', magenta: '#f5c2e7', cyan: '#94e2d5', white: '#bac2de',
+      brightBlack: '#585b70', brightRed: '#f38ba8', brightGreen: '#a6e3a1',
+      brightYellow: '#f9e2af', brightBlue: '#89b4fa', brightMagenta: '#f5c2e7',
+      brightCyan: '#94e2d5', brightWhite: '#a6adc8'
+    }
+  });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  term.open(container);
+  try { fit.fit(); } catch (e) {}
+
+  // Send keystrokes to PTY
+  term.onData(data => {
+    invoke('send_to_leader', { message: data }).catch(()=>{});
+  });
+
+  APP.leaderTerm = { term, fit };
+  new ResizeObserver(() => { try { fit.fit(); } catch (e) {} }).observe(container);
+
+  term.writeln('\x1b[2m# Leader connected. Type your request below or press Enter to interact.\x1b[0m');
 }
 
 function initTerminal(id) {
@@ -1339,7 +1602,31 @@ async function subscribeEvents() {
     const raw = p.chunk || '';
     if (!raw) return;
 
-    // Strip ANSI escape codes for display
+    if (APP.selectedAdapter && APP.selectedAdapter.type === 'cli') {
+      // Write directly to Leader Terminal
+      if (APP.leaderTerm) {
+        APP.leaderTerm.term.write(raw);
+      }
+      
+      // Also accumulate raw text for plan detection (strip ansi)
+      const cleanText = raw.replace(/\x1b\[[0-9;]*[mGKHFABCDJnsu]/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+      APP.leaderRawBuffer = (APP.leaderRawBuffer || '') + cleanText;
+      
+      // Basic plan detection from raw buffer
+      const lines = APP.leaderRawBuffer.split('\n');
+      const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
+      if (numbered.length >= 2) {
+        const newTasks = numbered.map(m => m[2]);
+        if (!APP.planTasks || APP.planTasks.length !== newTasks.length) {
+          APP.planText = APP.leaderRawBuffer;
+          APP.planTasks = newTasks;
+          if (APP.screen === 'executing') render(); 
+        }
+      }
+      return;
+    }
+
+    // Strip ANSI escape codes for display (for API/GUI adapters)
     const text = raw.replace(/\x1b\[[0-9;]*[mGKHFABCDJnsu]/g, '')
                     .replace(/\x1b\][^\x07]*\x07/g, '')
                     .replace(/\x1b[()][AB012]/g, '')
@@ -1348,8 +1635,8 @@ async function subscribeEvents() {
     if (!text.trim()) return;
 
     // Remove typing indicator
-    APP.messages = APP.messages.filter(m => !m.typing);
-
+    APP.leaderMessages = APP.leaderMessages.filter(m => !m.typing);
+    
     if (APP.screen === 'planning' || APP.screen === 'leader_select') {
       // Accumulate into last assistant message or create new one
       const lastMsg = APP.messages[APP.messages.length - 1];
@@ -1358,7 +1645,7 @@ async function subscribeEvents() {
       } else {
         APP.messages.push({ role: 'assistant', content: text, streaming: true });
       }
-      detectPlan();
+      detectPlan(APP.messages);
       // Update chat area without full re-render for performance
       const chatArea = document.getElementById('chat-area');
       if (chatArea) {
@@ -1375,6 +1662,7 @@ async function subscribeEvents() {
       } else {
         APP.leaderMessages.push({ role: 'assistant', content: text, streaming: true });
       }
+      detectPlan(APP.leaderMessages);
       updateLeaderChat();
     }
   });
@@ -1391,16 +1679,40 @@ async function subscribeEvents() {
   });
 }
 
-function detectPlan() {
+function detectPlan(messagesArray) {
   // Look for numbered list in the last assistant message
-  const assistantMsgs = APP.messages.filter(m => m.role === 'assistant');
+  const assistantMsgs = (messagesArray || APP.messages).filter(m => m.role === 'assistant');
   if (assistantMsgs.length === 0) return;
   const lastAssistant = assistantMsgs[assistantMsgs.length - 1];
   const lines = lastAssistant.content.split('\n');
   const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
   if (numbered.length >= 2) {
-    APP.planText = lastAssistant.content;
-    APP.planTasks = numbered.map(m => m[2]);
+    const newTasks = numbered.map(m => m[2]);
+    if (!APP.planTasks || APP.planTasks.length !== newTasks.length) {
+      APP.planText = lastAssistant.content;
+      APP.planTasks = newTasks;
+      if (APP.screen === 'executing') render();
+    }
+  }
+}
+
+function detectPlanFromBuffer() {
+  if (!APP.leaderRawBuffer) return;
+  // Look at the last 5KB of buffer for a numbered list
+  const tail = APP.leaderRawBuffer.slice(-5000);
+  const lines = tail.split('\n');
+  const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
+  if (numbered.length >= 2) {
+    const newTasks = numbered.map(m => m[2].trim()).filter(t => t.length > 0 && t.length < 200);
+    if (newTasks.length >= 2 && (!APP.planTasks || APP.planTasks.length !== newTasks.length)) {
+      APP.planText = tail;
+      APP.planTasks = newTasks;
+      // Re-render the planning screen to show Execute button
+      if (APP.screen === 'planning') {
+        // Use partial render to preserve terminal
+        render();
+      }
+    }
   }
 }
 

@@ -90,8 +90,10 @@ impl SessionFlowController {
         handle: AdapterAppHandle,
         session_id: String,
     ) -> Result<(), String> {
-        if self.phase != SessionPhase::FolderSelected {
-            return Err(format!("Cannot choose leader in phase {:?}", self.phase));
+        // Allow choosing a new leader even if we've already chosen one
+        if self.phase != SessionPhase::FolderSelected && self.phase != SessionPhase::LeaderChosen && self.phase != SessionPhase::Executing {
+            // Just warn instead of hard erroring to prevent UI lockups
+            eprintln!("Warning: Choosing leader in unexpected phase {:?}", self.phase);
         }
         self.leader_adapter_id = Some(adapter_id);
         self.leader_adapter = Some(adapter);

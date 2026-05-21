@@ -516,6 +516,9 @@ struct AdapterEntry {
 fn resolve_adapter_bin(adapter_id: &str) -> String {
     if let Ok(parsed) = toml::from_str::<AdaptersFile>(ADAPTERS_TOML) {
         if let Some(entry) = parsed.adapter.iter().find(|a| a.id == adapter_id) {
+            if let Some(resolved) = resolve_binary_path(&entry.bin) {
+                return resolved;
+            }
             return entry.bin.clone();
         }
     }
@@ -538,7 +541,7 @@ async fn get_adapters() -> Result<Vec<AdapterInfo>, String> {
                 return true;
             }
             // For CLI/GUI adapters, check if binary exists in PATH or as absolute path
-            which_binary(&a.bin)
+            resolve_binary_path(&a.bin).is_some()
         })
         .map(|a| AdapterInfo {
             id: a.id,
@@ -551,35 +554,76 @@ async fn get_adapters() -> Result<Vec<AdapterInfo>, String> {
     Ok(adapters)
 }
 
-/// Check if a binary is available (in PATH or as absolute path).
-fn which_binary(bin: &str) -> bool {
+/// Check if a binary is available (in PATH or as absolute path) and return the resolved path.
+fn resolve_binary_path(bin: &str) -> Option<String> {
     // Try as-is first (absolute path or in current dir)
     if std::path::Path::new(bin).exists() {
-        return true;
+        return Some(bin.to_owned());
     }
+    
+    // On Windows, try appending .exe or .cmd to the direct path
+    #[cfg(windows)]
+    {
+        let with_exe = format!("{}.exe", bin);
+        if std::path::Path::new(&with_exe).exists() {
+            return Some(with_exe);
+        }
+        let with_cmd = format!("{}.cmd", bin);
+        if std::path::Path::new(&with_cmd).exists() {
+            return Some(with_cmd);
+        }
+    }
+
+    // Check next to the current executable (useful for Tauri sidecars)
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(parent) = exe_path.parent() {
+            // First check exactly
+            let exact = parent.join(bin);
+            if exact.exists() {
+                return Some(exact.to_string_lossy().into_owned());
+            }
+            #[cfg(windows)]
+            {
+                let with_exe = parent.join(format!("{}.exe", bin));
+                if with_exe.exists() {
+                    return Some(with_exe.to_string_lossy().into_owned());
+                }
+            }
+            // Then check for Tauri sidecar suffixes (e.g. bin-x86_64-pc-windows-msvc.exe)
+            if let Ok(entries) = std::fs::read_dir(parent) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.starts_with(bin) && name.contains("-") && (name.ends_with(".exe") || name.ends_with(".cmd") || !name.contains(".")) {
+                        return Some(entry.path().to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+    }
+
     // Search in PATH
     if let Ok(path_var) = std::env::var("PATH") {
         let sep = if cfg!(windows) { ';' } else { ':' };
         for dir in path_var.split(sep) {
             let full = std::path::Path::new(dir).join(bin);
             if full.exists() {
-                return true;
+                return Some(full.to_string_lossy().into_owned());
             }
-            // On Windows, also try with .exe extension
+            // On Windows, also try with extensions in PATH
             #[cfg(windows)]
             {
                 let with_exe = std::path::Path::new(dir).join(format!("{}.exe", bin));
                 if with_exe.exists() {
-                    return true;
+                    return Some(with_exe.to_string_lossy().into_owned());
                 }
                 let with_cmd = std::path::Path::new(dir).join(format!("{}.cmd", bin));
                 if with_cmd.exists() {
-                    return true;
+                    return Some(with_cmd.to_string_lossy().into_owned());
                 }
             }
         }
     }
-    false
+    None
 }
 
 /// Validate and store the selected project folder, advancing the session
@@ -784,7 +828,8 @@ async fn approve_plan<R: Runtime>(
     // Set up orchestrator with worker adapter (default: opencode for workers)
     let cfg = SynergyConfig::load_default().unwrap_or_default();
     let worker_adapter_id = cfg.workers.adapter.clone();
-    let worker_bin = cfg.workers.bin_path.clone();
+    let worker_bin = resolve_binary_path(&cfg.workers.bin_path)
+        .unwrap_or_else(|| cfg.workers.bin_path.clone());
     let max_workers = cfg.workers.count;
 
     // Calculate how many workers to spawn based on independent (parallelizable) tasks

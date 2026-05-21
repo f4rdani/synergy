@@ -20,3 +20,10 @@ logs/
 
 # Build artifacts  
 *.msi
+
+# Bundled binaries (large, downloaded separately)
+crates/synergy-app/binaries/
+
+# Test/scratch files
+test_out.txt
+*.tmp.txt
