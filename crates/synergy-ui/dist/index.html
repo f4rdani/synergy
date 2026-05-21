@@ -342,54 +342,62 @@ const APP = {
   selectedLeaderModel: null,
 };
 
-// --- Tauri Bridge ---
-const tauriBridge = (() => {
-  const t = window.__TAURI__;
-  if (t && t.core && typeof t.core.invoke === 'function') {
-    return {
-      invoke: t.core.invoke.bind(t.core),
-      listen: t.event ? t.event.listen.bind(t.event) : null,
-      dialog: t.dialog || null,
-    };
-  }
-  return null;
-})();
-
+// --- Tauri Bridge (real backend only, no mock) ---
 async function invoke(cmd, args = {}) {
-  if (tauriBridge) return tauriBridge.invoke(cmd, args);
-  return mockInvoke(cmd, args);
+  if (!window.__TAURI__ || !window.__TAURI__.core || typeof window.__TAURI__.core.invoke !== 'function') {
+    throw new Error(`Backend not available. Cannot invoke '${cmd}'. Make sure the app is running in Tauri, not a browser.`);
+  }
+  try {
+    return await window.__TAURI__.core.invoke(cmd, args);
+  } catch (e) {
+    console.error(`[Synergy] Command '${cmd}' failed:`, e);
+    throw e;
+  }
 }
 
 async function listen(ev, cb) {
-  if (tauriBridge && tauriBridge.listen) return tauriBridge.listen(ev, cb);
-  if (!mockListeners[ev]) mockListeners[ev] = [];
-  mockListeners[ev].push(cb);
-  return () => { mockListeners[ev] = mockListeners[ev].filter(x => x !== cb); };
+  if (!window.__TAURI__ || !window.__TAURI__.event || typeof window.__TAURI__.event.listen !== 'function') {
+    console.warn(`[Synergy] Cannot listen to '${ev}' - Tauri event system not available`);
+    return () => {};
+  }
+  return window.__TAURI__.event.listen(ev, cb);
 }
 
 async function openFolderDialog() {
-  // Tauri 2.0 dialog - try multiple API paths
-  if (window.__TAURI__) {
-    try {
-      // Tauri 2.0 plugin API
-      if (window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+  // Always use the backend command for native OS dialog
+  try {
+    const result = await invoke('open_folder_dialog');
+    return result || null;
+  } catch (e) {
+    // If backend command fails, try Tauri dialog plugin as fallback
+    if (window.__TAURI__ && window.__TAURI__.dialog && window.__TAURI__.dialog.open) {
+      try {
         const result = await window.__TAURI__.dialog.open({
           directory: true,
           multiple: false,
           title: 'Select Project Folder'
         });
-        if (result) return result;
+        return result || null;
+      } catch (e2) {
+        console.error('All folder dialog methods failed:', e2);
       }
-      // Fallback: invoke custom command that uses native OS dialogs
-      const result = await invoke('open_folder_dialog');
-      if (result) return result;
-    } catch (e) {
-      console.warn('Dialog failed, using input fallback:', e);
     }
+    // Show error to user instead of silent fallback to prompt
+    showError('Could not open folder dialog: ' + e.message);
+    return null;
   }
-  // Final fallback: prompt user
-  const input = prompt('Enter project folder path:');
-  return input || null;
+}
+
+// --- Error Display ---
+function showError(msg) {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999';
+  overlay.innerHTML = `<div style="background:var(--bg-surface);border:1px solid var(--red);border-radius:10px;padding:20px;max-width:400px;color:var(--text)">
+    <div style="font-weight:600;color:var(--red);margin-bottom:8px">Error</div>
+    <div style="font-size:12px;color:var(--text-sub);line-height:1.5">${msg}</div>
+    <button onclick="this.closest('div[style]').remove()" style="margin-top:12px;background:var(--surface0);border:1px solid var(--border);border-radius:6px;padding:6px 16px;color:var(--text);cursor:pointer">Close</button>
+  </div>`;
+  document.body.appendChild(overlay);
 }
 
 // --- Screen transitions ---
@@ -879,7 +887,7 @@ function attachEvents() {
       APP.availableModels = APP.leaderModels;
       render();
     } catch(e) {
-      alert('Failed to fetch models: ' + e);
+      showError('Failed to fetch models: ' + e);
     }
   });
 
@@ -893,11 +901,15 @@ function attachEvents() {
 // --- Event Handlers ---
 
 async function handleOpenFolder() {
-  const result = await openFolderDialog();
-  if (result) {
-    APP.projectDir = result;
-    try { await invoke('add_recent_project', { path: result }); } catch (e) {}
-    await loadAdaptersAndGo();
+  try {
+    const result = await openFolderDialog();
+    if (result) {
+      APP.projectDir = result;
+      try { await invoke('add_recent_project', { path: result }); } catch (e) { /* non-critical */ }
+      await loadAdaptersAndGo();
+    }
+  } catch (e) {
+    showError('Failed to open folder dialog: ' + e.message);
   }
 }
 
@@ -914,11 +926,13 @@ async function loadAdaptersAndGo() {
   try {
     await invoke('select_folder', { path: APP.projectDir });
   } catch (e) {
-    // non-fatal in mock mode
+    showError('select_folder: ' + e);
+    return;
   }
   try {
     APP.adapters = await invoke('get_adapters');
   } catch (e) {
+    showError('Failed to load adapters: ' + e);
     APP.adapters = [];
   }
   goTo('leader_select');
@@ -931,12 +945,13 @@ async function handleAdapterSelect(adapterId) {
   APP.connectionStatus = 'connecting';
   APP.connectionMessage = 'Launching ' + adapterId + '...';
   APP.connectionLog = [{ ts: new Date().toLocaleTimeString(), status: 'connecting', message: 'Initiating connection to ' + adapterId }];
+  render();
 
   try {
     const result = await invoke('choose_leader', { adapter_id: adapterId, project_dir: APP.projectDir });
     // Backend returns session_id string directly
     if (typeof result === 'string') APP.sessionId = result;
-    // If no event came from backend (mock mode), set connected
+    // If no event came from backend, set connected
     if (APP.connectionStatus === 'connecting') {
       APP.connectionStatus = 'connected';
       APP.connectionMessage = 'Connected to ' + adapterId;
@@ -944,12 +959,12 @@ async function handleAdapterSelect(adapterId) {
       APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), status: 'connected', message: 'Successfully connected to ' + adapterId });
     }
   } catch (e) {
-    // Set failed status if no event came from backend
-    if (APP.connectionStatus !== 'failed') {
-      APP.connectionStatus = 'failed';
-      APP.connectionMessage = 'Failed to connect: ' + e;
-      APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), status: 'failed', message: 'Connection failed: ' + e });
-    }
+    APP.connectionStatus = 'failed';
+    APP.connectionMessage = 'Failed to connect: ' + e;
+    APP.connectionLog.push({ ts: new Date().toLocaleTimeString(), status: 'failed', message: 'Connection failed: ' + e });
+    showError(`Failed to connect to ${adapterId}: ${e}`);
+    render();
+    return;
   }
 
   APP.messages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type || adapter.adapter_type}). Describe what you want to build.` }];
@@ -970,7 +985,7 @@ async function handleChatSend() {
   } catch (e) {
     // Remove typing indicator on error, show error
     APP.messages = APP.messages.filter(m => !m.typing);
-    APP.messages.push({ role: 'system', content: 'Error: Failed to send message to Leader.' });
+    APP.messages.push({ role: 'system', content: `Error sending message: ${e}` });
     render();
   }
 }
@@ -989,8 +1004,8 @@ async function handleApprovePlan() {
     const result = await invoke('approve_plan', { session_id: APP.sessionId, plan_text: APP.planText });
     if (result) APP.logs.push('Workers spawned: ' + (Array.isArray(result) ? result.length : 0) + ' tasks queued');
   } catch (e) {
-    // proceed anyway for mock
-    APP.logs.push('Running in mock mode');
+    showError('approve_plan failed: ' + e);
+    return;
   }
 
   goTo('executing');
@@ -1033,7 +1048,9 @@ async function handleLeaderSend() {
   APP.leaderMessages.push({ role: 'user', content: text });
   try {
     await invoke('send_to_leader', { message: text });
-  } catch (e) {}
+  } catch (e) {
+    APP.leaderMessages.push({ role: 'system', content: `Error sending message: ${e}` });
+  }
   updateLeaderChat();
 }
 
@@ -1412,12 +1429,8 @@ async function openSettings() {
     APP.availableModels = await invoke('get_available_models');
     APP.workerModel = await invoke('get_worker_model');
   } catch(e) {
-    // Use defaults for mock mode
-    APP.availableModels = [
-      {id:'anthropic/claude-sonnet-4-20250514',name:'Claude Sonnet 4',provider:'Anthropic',free:true},
-      {id:'openai/gpt-4o-mini',name:'GPT-4o Mini',provider:'OpenAI',free:true},
-      {id:'google/gemini-2.5-flash',name:'Gemini 2.5 Flash',provider:'Google',free:true},
-    ];
+    showError('Failed to load settings: ' + e);
+    APP.availableModels = [];
   }
   APP.showSettings = true;
   render();
@@ -1487,213 +1500,23 @@ async function openModelSelector() {
     APP.availableModels = models;
     APP.modelLoading = false;
   } catch(e) {
-    APP.availableModels = [{id:'error', name:'Failed to query models: ' + e, provider:'Error', free:false}];
+    APP.availableModels = [];
     APP.modelLoading = false;
+    showError('Failed to query models: ' + e);
   }
   render();
 }
 
 async function selectModel(modelId) {
-  if (modelId === '(query workers to see live list)' || modelId === 'error') return;
+  if (!modelId) return;
   APP.workerModel = modelId;
   APP.showModelSelector = false;
   try {
     await invoke('set_worker_model_cmd', { model: modelId });
   } catch(e) {
-    console.error('Failed to set model:', e);
+    showError('Failed to set model: ' + e);
   }
   render();
-}
-
-// --- Mock Mode (browser preview without Tauri) ---
-const mockListeners = {};
-const mockState = { session: null, tasks: [], workers: [], tickTimer: null };
-
-async function mockInvoke(cmd, args = {}) {
-  await new Promise(r => setTimeout(r, 50));
-
-  if (cmd === 'select_folder') {
-    return;
-  }
-
-  if (cmd === 'open_folder_dialog') {
-    const input = prompt('Enter project folder path:');
-    return input || null;
-  }
-
-  if (cmd === 'get_recent_projects') {
-    return APP.recentProjects || [];
-  }
-
-  if (cmd === 'add_recent_project') {
-    const path = args.path;
-    APP.recentProjects = APP.recentProjects.filter(p => p !== path);
-    APP.recentProjects.unshift(path);
-    if (APP.recentProjects.length > 10) APP.recentProjects.length = 10;
-    return;
-  }
-
-  if (cmd === 'get_adapters') {
-    return [
-      { id: 'opencode', type: 'cli', desc: 'OpenCode CLI - free AI coding assistant' },
-      { id: 'aider', type: 'cli', desc: 'Aider - AI pair programming in terminal' },
-      { id: 'claude-cli', type: 'cli', desc: 'Claude CLI - official Anthropic CLI' },
-      { id: 'codex-cli', type: 'cli', desc: 'Codex CLI - OpenAI terminal tool' },
-      { id: 'antigravity', type: 'cli', desc: 'Antigravity - AI coding assistant CLI' },
-      { id: 'cli-generic', type: 'cli', desc: 'Generic shell (cmd, powershell, bash)' },
-      { id: 'cursor', type: 'gui', desc: 'Cursor - AI-first code editor' },
-      { id: 'kiro', type: 'gui', desc: 'Kiro - AI IDE by Amazon' },
-      { id: 'vscode', type: 'gui', desc: 'VS Code + Copilot' },
-      { id: 'windsurf', type: 'gui', desc: 'Windsurf - AI code editor' },
-    ];
-  }
-
-  if (cmd === 'choose_leader') {
-    APP.sessionId = 'session_mock_' + Date.now();
-    // Simulate connection status events
-    setTimeout(() => emitMockEvent('leader-connection-status', { status: 'connecting', message: 'Launching ' + (args.adapter_id || 'unknown') + '...' }), 100);
-    setTimeout(() => {
-      const aType = APP.selectedAdapter ? (APP.selectedAdapter.type || APP.selectedAdapter.adapter_type) : 'cli';
-      const connType = aType === 'cli' ? 'CLI process via PTY (pseudo-terminal)' : aType === 'gui' ? 'GUI window embedded via Win32 SetParent + UI Automation' : 'HTTP API';
-      emitMockEvent('leader-connection-status', { status: 'connected', message: 'Successfully connected to ' + (args.adapter_id || 'unknown'), connection_type: connType, adapter_id: args.adapter_id });
-    }, 500);
-    return APP.sessionId;
-  }
-
-  if (cmd === 'send_to_leader') {
-    // Simulate leader response with a plan after 1.5s
-    setTimeout(() => {
-      const planResponse = `I'll break this down into tasks:\n\n1. Set up project structure and configuration\n2. Implement core data models\n3. Create API endpoints\n4. Build frontend components\n5. Add authentication and authorization\n6. Write unit and integration tests\n7. Final review and documentation`;
-      emitMockEvent('leader-output', { chunk: planResponse });
-    }, 1500);
-    return;
-  }
-
-  if (cmd === 'approve_plan') {
-    mockState.tasks = APP.planTasks.map((t, i) => ({ id: 'task_' + i, title: t, status: 'pending', worker_id: null }));
-    mockState.workers = Array.from({ length: APP.workerCount }, (_, i) => ({
-      id: i, status: 'idle', proxy_addr: `socks5://proxy-${i+1}:1080`, current_task: ''
-    }));
-    // Start mock execution
-    if (mockState.tickTimer) clearInterval(mockState.tickTimer);
-    mockState.tickTimer = setInterval(mockExecutionTick, 2000);
-    // Return task IDs like the real backend
-    return mockState.tasks.map(t => t.id);
-  }
-
-  if (cmd === 'get_state') {
-    return { tasks: mockState.tasks, workers: mockState.workers, logs: [] };
-  }
-
-  if (cmd === 'get_session_flow_state') {
-    return { phase: APP.screen === 'executing' ? 'Executing' : 'Idle', project_dir: APP.projectDir, leader_adapter_id: APP.selectedAdapter ? APP.selectedAdapter.id : null };
-  }
-
-  if (cmd === 'get_worker_model') {
-    return APP.workerModel || '';
-  }
-
-  if (cmd === 'set_worker_model_cmd') {
-    APP.workerModel = args.model;
-    return;
-  }
-
-  if (cmd === 'fetch_leader_models') {
-    // Return leader-specific models in mock mode
-    const leaderId = APP.selectedAdapter ? APP.selectedAdapter.id : '';
-    const modelSets = {
-      'opencode': [
-        {id:'anthropic/claude-sonnet-4-20250514',name:'Claude Sonnet 4',provider:'Anthropic',free:true},
-        {id:'openai/gpt-4o-mini',name:'GPT-4o Mini',provider:'OpenAI',free:true},
-        {id:'google/gemini-2.5-flash',name:'Gemini 2.5 Flash',provider:'Google',free:true},
-      ],
-      'cursor': [
-        {id:'claude-sonnet-4',name:'Claude Sonnet 4',provider:'Cursor',free:false},
-        {id:'gpt-4o',name:'GPT-4o',provider:'Cursor',free:false},
-        {id:'gpt-4o-mini',name:'GPT-4o Mini',provider:'Cursor',free:true},
-        {id:'cursor-small',name:'Cursor Small',provider:'Cursor',free:true},
-      ],
-      'codex-cli': [
-        {id:'codex-mini',name:'Codex Mini',provider:'OpenAI',free:true},
-        {id:'o4-mini',name:'o4-mini',provider:'OpenAI',free:true},
-      ],
-      'antigravity': [
-        {id:'antigravity/default',name:'Antigravity Default',provider:'Antigravity',free:true},
-      ],
-    };
-    return modelSets[leaderId] || [{id:'default',name:'Default Model',provider:'Auto',free:true}];
-  }
-
-  if (cmd === 'get_available_models') {
-    // In mock mode, simulate dynamic query behavior
-    if (mockState.workers.length > 0) {
-      return [
-        {id:'anthropic/claude-sonnet-4-20250514',name:'Claude Sonnet 4',provider:'Anthropic',free:true},
-        {id:'anthropic/claude-haiku-3-5',name:'Claude Haiku 3.5',provider:'Anthropic',free:true},
-        {id:'openai/gpt-4o-mini',name:'GPT-4o Mini',provider:'OpenAI',free:true},
-        {id:'openai/gpt-4.1-mini',name:'GPT-4.1 Mini',provider:'OpenAI',free:true},
-        {id:'openai/o4-mini',name:'o4-mini',provider:'OpenAI',free:true},
-        {id:'google/gemini-2.5-flash',name:'Gemini 2.5 Flash',provider:'Google',free:true},
-        {id:'google/gemini-2.5-pro',name:'Gemini 2.5 Pro',provider:'Google',free:true},
-        {id:'deepseek/deepseek-chat',name:'DeepSeek V3',provider:'DeepSeek',free:true},
-        {id:'deepseek/deepseek-reasoner',name:'DeepSeek R1',provider:'DeepSeek',free:true},
-      ];
-    }
-    return [{id:'(query workers to see live list)',name:'Start a session first to see available models',provider:'Info',free:true}];
-  }
-
-  return null;
-}
-
-function emitMockEvent(eventName, payload) {
-  const listeners = mockListeners[eventName];
-  if (listeners) {
-    listeners.forEach(cb => cb({ payload }));
-  }
-}
-
-function mockExecutionTick() {
-  // Find a pending task and assign to idle worker
-  const pendingTask = mockState.tasks.find(t => t.status === 'pending');
-  const idleWorker = mockState.workers.find(w => w.status === 'idle');
-
-  if (pendingTask && idleWorker) {
-    pendingTask.status = 'running';
-    pendingTask.worker_id = idleWorker.id;
-    idleWorker.status = 'working';
-    idleWorker.current_task = pendingTask.title.substring(0, 30);
-
-    APP.logs.push(`<span style="color:var(--teal)">W${idleWorker.id+1}</span> started: ${pendingTask.title.substring(0, 40)}`);
-
-    // Emit terminal output
-    emitMockEvent('worker-output', {
-      worker_id: idleWorker.id,
-      chunk: `\r\n\x1b[36m> ${pendingTask.title}\x1b[0m\r\n\x1b[2mProcessing...\x1b[0m\r\n`
-    });
-
-    // Complete after delay
-    setTimeout(() => {
-      pendingTask.status = 'done';
-      idleWorker.status = 'idle';
-      idleWorker.current_task = '';
-      APP.logs.push(`<span style="color:var(--green)">W${idleWorker.id+1}</span> completed: ${pendingTask.title.substring(0, 40)}`);
-      emitMockEvent('worker-output', {
-        worker_id: idleWorker.id,
-        chunk: '\x1b[32m  Done\x1b[0m\r\n'
-      });
-      // Leader batch report
-      APP.leaderMessages.push({ role: 'assistant', content: `Worker ${idleWorker.id+1} completed: ${pendingTask.title}. Output reviewed and approved.` });
-      if (APP.screen === 'executing') updateLeaderChat();
-    }, 3000 + Math.random() * 2000);
-  }
-
-  // Check if all done
-  if (mockState.tasks.length > 0 && mockState.tasks.every(t => t.status === 'done')) {
-    clearInterval(mockState.tickTimer);
-    mockState.tickTimer = null;
-    // Emit session-state-changed to trigger the reviewing phase
-    setTimeout(() => emitMockEvent('session-state-changed', { phase: 'reviewing' }), 500);
-  }
 }
 
 // --- Keyboard Shortcuts ---
@@ -1741,10 +1564,19 @@ document.addEventListener('keydown', (e) => {
   try {
     APP.recentProjects = await invoke('get_recent_projects');
   } catch(e) {
+    console.warn('Could not load recent projects:', e);
     APP.recentProjects = [];
   }
-  subscribeEvents();
+
+  try {
+    APP.adapters = await invoke('get_adapters');
+  } catch(e) {
+    console.warn('Could not load adapters:', e);
+    APP.adapters = [];
+  }
+
   render();
+  subscribeEvents();
 })();
 
 </script>
