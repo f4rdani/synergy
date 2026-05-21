@@ -44,6 +44,7 @@ pub struct GeneralConfig {
     pub language: String,
     pub theme: String,
     pub project_dir: Option<String>,
+    pub recent_projects: Vec<String>,
 }
 
 impl Default for GeneralConfig {
@@ -52,6 +53,7 @@ impl Default for GeneralConfig {
             language: "id".to_owned(),
             theme: "dark".to_owned(),
             project_dir: None,
+            recent_projects: Vec::new(),
         }
     }
 }

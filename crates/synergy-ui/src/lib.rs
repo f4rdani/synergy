@@ -1021,6 +1021,96 @@ fn fallback_models() -> Vec<ModelInfo> {
     }]
 }
 
+/// Open native folder picker dialog using platform-native mechanisms.
+/// On Windows uses PowerShell FolderBrowserDialog, on macOS uses osascript,
+/// on Linux uses zenity.
+#[tauri::command]
+async fn open_folder_dialog() -> Result<Option<String>, String> {
+    let result = tokio::task::spawn_blocking(|| {
+        #[cfg(windows)]
+        {
+            let output = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    "Add-Type -AssemblyName System.Windows.Forms; $dialog = New-Object System.Windows.Forms.FolderBrowserDialog; $dialog.Description = 'Select Project Folder'; $dialog.ShowNewFolderButton = $true; if ($dialog.ShowDialog() -eq 'OK') { $dialog.SelectedPath } else { '' }",
+                ])
+                .output();
+            match output {
+                Ok(out) => {
+                    let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                    if path.is_empty() {
+                        None
+                    } else {
+                        Some(path)
+                    }
+                }
+                Err(_) => None,
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let output = std::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    "POSIX path of (choose folder with prompt \"Select Project Folder\")",
+                ])
+                .output();
+            match output {
+                Ok(out) if out.status.success() => {
+                    let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                    if path.is_empty() {
+                        None
+                    } else {
+                        Some(path)
+                    }
+                }
+                _ => None,
+            }
+        }
+        #[cfg(all(not(windows), not(target_os = "macos")))]
+        {
+            let output = std::process::Command::new("zenity")
+                .args(["--file-selection", "--directory", "--title=Select Project Folder"])
+                .output();
+            match output {
+                Ok(out) if out.status.success() => {
+                    let path = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+                    if path.is_empty() {
+                        None
+                    } else {
+                        Some(path)
+                    }
+                }
+                _ => None,
+            }
+        }
+    })
+    .await
+    .map_err(|e| format!("{e}"))?;
+
+    Ok(result)
+}
+
+/// Get list of recently opened project folders from config.
+#[tauri::command]
+async fn get_recent_projects() -> Result<Vec<String>, String> {
+    let cfg = SynergyConfig::load_default().unwrap_or_default();
+    Ok(cfg.general.recent_projects.clone())
+}
+
+/// Add a project to the recent projects list (max 10, most recent first).
+#[tauri::command]
+async fn add_recent_project(path: String) -> Result<(), String> {
+    let mut cfg = SynergyConfig::load_default().unwrap_or_default();
+    cfg.general.recent_projects.retain(|p| p != &path);
+    cfg.general.recent_projects.insert(0, path);
+    cfg.general.recent_projects.truncate(10);
+    let config_path = SynergyConfig::default_path().map_err(|e| e.to_string())?;
+    cfg.save_to(&config_path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder
         .setup(|app| {
@@ -1052,6 +1142,9 @@ pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             get_session_flow_state,
             get_worker_model,
             set_worker_model_cmd,
-            get_available_models
+            get_available_models,
+            open_folder_dialog,
+            get_recent_projects,
+            add_recent_project
         ])
 }

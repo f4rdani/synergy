@@ -27,6 +27,12 @@ bin  = "codex"
 desc = "Codex CLI — OpenAI terminal tool"
 
 [[adapter]]
+id   = "antigravity"
+type = "cli"
+bin  = "antigravity"
+desc = "Antigravity — AI coding assistant CLI"
+
+[[adapter]]
 id   = "cli-generic"
 type = "cli"
 bin  = "cmd.exe"
