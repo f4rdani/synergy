@@ -2,7 +2,7 @@
   "id": "FEAT-003",
   "type": "feat",
   "description": "End-to-end wiring and integration: connect frontend UI screens to backend commands, ensure Tauri events flow correctly, update Tauri capabilities/permissions for new commands, and ensure the full flow works from folder selection through task completion.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1: Update crates/synergy-app/capabilities/default.json to add permissions for dialog (folder picker), fs (file system access for project dir validation), and any additional Tauri plugin permissions needed. Add 'dialog:default' for the folder picker dialog.",
     "Step 2: Verify and fix the frontend-backend contract. Ensure every invoke() call in the frontend index.html matches a #[tauri::command] function name and argument structure in synergy-ui/src/lib.rs. Key mappings: invoke('get_adapters') -> get_adapters(), invoke('select_folder', {path}) -> select_folder(path), invoke('choose_leader', {adapter_id, project_dir}) -> choose_leader(adapter_id, project_dir), invoke('send_to_leader', {message}) -> send_to_leader(message), invoke('approve_plan', {session_id, plan_text}) -> approve_plan(session_id, plan_text), invoke('get_session_flow_state') -> get_session_flow_state(), invoke('get_state', {session_id}) -> get_state(session_id), invoke('send_worker_command', {worker_id, command}) -> send_worker_command(worker_id, command).",
@@ -29,5 +29,5 @@
     "Verify the frontend mock mode simulates the complete flow with fake data"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "No Rust toolchain available in sandbox - verification is syntax/structure only per context.json. All frontend invoke() calls verified to match backend command names and argument shapes. The AdapterInfo struct uses serde rename so 'adapter_type' field serializes as 'type' in JSON - frontend usage of a.type is correct. Mock mode now accurately reflects backend return types. The toml dependency was already present in synergy-ui/Cargo.toml. The include_str path for adapters.toml resolves correctly (3 levels up from src/ reaches workspace root)."
 }
