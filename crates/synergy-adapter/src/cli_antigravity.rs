@@ -55,6 +55,7 @@ impl AppAdapter for AntigravityAdapter {
             Ok(AppHandle {
                 pty_session: None,
                 window_hwnd: Some(hwnd as usize),
+                user_data: None,
             })
         }
     }

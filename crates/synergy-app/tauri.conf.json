@@ -1,6 +1,6 @@
 {
   "productName": "Synergy",
-  "version": "0.4.0",
+  "version": "0.8.0",
   "identifier": "com.synergy.app",
   "build": {
     "frontendDist": "../synergy-ui/dist"

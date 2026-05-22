@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <meta http-equiv="Pragma" content="no-cache"/>
 <meta http-equiv="Expires" content="0"/>
-<title>Synergy v0.7.0 — Chat Mode</title>
+<title>Synergy v0.8.0 — Plan-only Leader</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
@@ -347,6 +347,16 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .workspace-leader-header{height:34px;display:flex;align-items:center;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px;gap:8px}
 .workspace-leader-header .ws-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 4px var(--green)}
 .workspace-leader-header .ws-spacer{flex:1}
+.ws-status-badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;text-transform:none;letter-spacing:0;background:rgba(166,227,161,.15);color:var(--green);border:1px solid rgba(166,227,161,.3);font-family:'JetBrains Mono',monospace}
+.ws-status-badge.busy{background:rgba(249,226,175,.15);color:var(--peach,#fab387);border-color:rgba(249,226,175,.3)}
+.ws-status-badge.briefing{background:rgba(137,180,250,.15);color:var(--blue,#89b4fa);border-color:rgba(137,180,250,.3)}
+.ws-changelog{border-top:1px solid var(--border);max-height:240px;overflow-y:auto;background:var(--bg-overlay)}
+.ws-changelog-header{height:30px;display:flex;align-items:center;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px}
+.ws-changelog-body{padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:11px}
+.ws-change-row{display:flex;justify-content:space-between;gap:8px;padding:3px 6px;border-radius:3px}
+.ws-change-row:hover{background:var(--bg-surface)}
+.ws-change-path{color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.ws-change-summary{color:var(--text-dim);font-size:10px;flex-shrink:0}
 .workspace-leader-header button{background:var(--surface0);border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--text-sub);font-size:11px;cursor:pointer}
 .workspace-leader-header button:hover{border-color:var(--accent);color:var(--accent)}
 .workspace-leader-term{flex:1;min-height:0;background:#0a0a14;padding:0;overflow:hidden}
@@ -438,6 +448,13 @@ const APP = {
   leaderModels: [],
   selectedLeaderModel: null,
   showProviderList: false,
+  // v0.8.0: Leader status + auto-delegate
+  leaderBusy: false,        // true while opencode run is in flight
+  leaderTurnCount: 0,       // # of completed turns (used to skip briefing greeting)
+  autoDelegateTimer: null,  // setTimeout handle for the 5s countdown
+  autoDelegateRemaining: 0, // seconds remaining
+  lastDelegatedPlanKey: null, // dedupe so we don't loop the auto-delegate
+  gitChanges: null,         // { is_repo, summary, files[] }
 };
 
 // --- Tauri Bridge ---
@@ -531,7 +548,17 @@ function goTo(screen) {
     requestAnimationFrame(() => {
       initWorkspaceTerminals();
       fetchAllIps();
+      refreshChangelog();
+      // Refresh changelog every 5s while in workspace
+      if (!APP.changelogInterval) {
+        APP.changelogInterval = setInterval(() => {
+          if (APP.screen === 'workspace') refreshChangelog();
+        }, 5000);
+      }
     });
+  } else if (APP.changelogInterval) {
+    clearInterval(APP.changelogInterval);
+    APP.changelogInterval = null;
   }
 }
 
@@ -603,6 +630,14 @@ function initWorkspaceTerminals() {
               }
             }
           });
+        }
+        // Refresh status badge — workers may have transitioned busy↔idle.
+        updateStatusBadge();
+        // Refresh status bar Workers count
+        const sbWorkers = document.querySelector('.statusbar [data-sb="workers"]');
+        if (sbWorkers) {
+          const busy = (APP.workers || []).filter(w => w.status === 'working').length;
+          sbWorkers.textContent = `Workers: ${busy}/${APP.workerCount}`;
         }
       } catch (e) {}
     }, 1500);
@@ -779,7 +814,7 @@ function renderStatusbar() {
   const projectPath = APP.projectDir || '';
   const projectName = projectPath ? projectPath.split(/[\\/]/).pop() : '';
   return `<div class="statusbar">
-    <span>Synergy v0.7.0</span><span class="sep"></span>
+    <span>Synergy v0.8.0</span><span class="sep"></span>
     ${projectName ? `<span title="${escapeHtml(projectPath)}">📁 ${escapeHtml(projectName)}</span><span class="sep"></span>` : ''}
     <span>Leader: ${leaderName}</span><span class="sep"></span>
     <span>Workers: ${busyCount}/${totalWorkers}</span><span class="sep"></span>
@@ -1307,13 +1342,17 @@ function renderWorkspace() {
     return `<div class="chat-msg assistant"><pre style="white-space:pre-wrap;margin:0;font-family:inherit">${escapeHtml(m.content)}</pre></div>`;
   }).join('');
 
+  const status = describeLeaderStatus();
+  const changes = renderChangelogPanel();
+
   return `
     <div class="workspace-leader">
       <div class="workspace-leader-header">
         <span class="ws-dot"></span>
-        <span>Leader · OpenCode</span>
+        <span>Leader · OpenCode (plan-only)</span>
         <span style="font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-weight:400;text-transform:none">${escapeHtml(projectName)}</span>
         <span style="font-size:10px;color:var(--teal);font-family:'JetBrains Mono',monospace;text-transform:none">IP: ${escapeHtml(leaderIp)}</span>
+        <span id="ws-status-badge" class="ws-status-badge ${status.cls}" title="${escapeHtml(status.tip)}">${status.label}</span>
         <div class="ws-spacer"></div>
         ${APP.detectedPlan && APP.detectedPlan.tasks.length > 0 ? `
           <button id="btn-ws-delegate" style="background:var(--green);color:var(--bg-crust);font-weight:600">
@@ -1323,10 +1362,11 @@ function renderWorkspace() {
         <button id="btn-ws-restart" title="Restart OpenCode session">↻ Restart</button>
       </div>
       <div class="leader-chat-area" id="leader-chat-area" style="flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:10px;background:var(--bg-overlay)">
-        ${msgs || '<div class="chat-msg system">Leader ready. Type a message or use /commands (try /help).</div>'}
+        ${msgs || '<div class="chat-msg system">Leader sedang dibrief... tunggu sebentar, dia akan menyapa.</div>'}
       </div>
+      <div id="auto-delegate-bar" style="display:none"></div>
       <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--bg-surface)">
-        <input type="text" id="leader-input" placeholder="Message Leader or /command..." style="flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none" />
+        <input type="text" id="leader-input" placeholder="Tulis pesan untuk Leader atau /command..." style="flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none" />
         <button id="btn-leader-send" style="background:var(--accent);border:none;border-radius:6px;padding:10px 16px;color:var(--bg-crust);font-weight:600;font-size:12px;cursor:pointer">Send</button>
       </div>
     </div>
@@ -1338,8 +1378,134 @@ function renderWorkspace() {
       <div class="workspace-workers-grid">
         ${workerCells}
       </div>
+      ${changes}
     </div>
   `;
+}
+
+// Compute the friendly status label for the workspace badge.
+function describeLeaderStatus() {
+  const busy = APP.leaderBusy;
+  const turns = APP.leaderTurnCount || 0;
+  const workersBusy = (APP.workers || []).filter(w => w.status === 'working').length;
+  const workersTotal = APP.workerCount || 6;
+  if (workersBusy > 0) {
+    return { label: `🔵 Workers ${workersBusy}/${workersTotal}`, cls: 'busy', tip: 'Workers are executing tasks' };
+  }
+  if (busy) {
+    return { label: '🟡 Leader thinking...', cls: 'busy', tip: 'Leader is generating a response' };
+  }
+  if (turns === 0) {
+    return { label: '⏳ Briefing...', cls: 'briefing', tip: 'Sending briefing to Leader' };
+  }
+  return { label: '🟢 Idle', cls: 'idle', tip: 'Ready for input' };
+}
+
+// Update only the status badge node — avoids full re-render which would
+// disrupt scroll position and any focused input.
+function updateStatusBadge() {
+  const badge = document.getElementById('ws-status-badge');
+  if (!badge) return;
+  const s = describeLeaderStatus();
+  badge.textContent = s.label;
+  badge.className = 'ws-status-badge ' + s.cls;
+  badge.title = s.tip;
+}
+
+// Render the Changelog panel below the worker grid.
+function renderChangelogPanel() {
+  const ch = APP.gitChanges;
+  if (!ch || !ch.is_repo) {
+    return `<div class="ws-changelog" id="ws-changelog">
+      <div class="ws-changelog-header">📝 Changelog</div>
+      <div class="ws-changelog-body" style="font-size:11px;color:var(--text-dim);padding:8px 10px">${ch ? escapeHtml(ch.summary || '') : 'No changes yet — Leader has not delegated to Workers.'}</div>
+    </div>`;
+  }
+  if (!ch.files || !ch.files.length) {
+    return `<div class="ws-changelog" id="ws-changelog">
+      <div class="ws-changelog-header">📝 Changelog</div>
+      <div class="ws-changelog-body" style="font-size:11px;color:var(--text-dim);padding:8px 10px">No file changes detected yet.</div>
+    </div>`;
+  }
+  const items = ch.files.map(f =>
+    `<div class="ws-change-row" title="${escapeHtml(f.path)}"><span class="ws-change-path">${escapeHtml(f.path)}</span><span class="ws-change-summary">${escapeHtml(f.summary)}</span></div>`
+  ).join('');
+  return `<div class="ws-changelog" id="ws-changelog">
+    <div class="ws-changelog-header">📝 Changelog (${ch.files.length} files)</div>
+    <div class="ws-changelog-body">${items}</div>
+  </div>`;
+}
+
+// Pull the current `git diff --stat` output from the backend and re-render
+// only the changelog node (so we don't disturb the chat scroll).
+async function refreshChangelog() {
+  try {
+    const ch = await invoke('get_git_changes', {});
+    APP.gitChanges = ch;
+    const node = document.getElementById('ws-changelog');
+    if (node) {
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = renderChangelogPanel();
+      const fresh = wrapper.firstElementChild;
+      if (fresh) node.replaceWith(fresh);
+    }
+  } catch (e) {
+    appendSystemLog('debug', 'changelog', `refresh failed: ${e}`);
+  }
+}
+
+// Show a 5-second countdown banner that auto-triggers delegation. The user
+// can click [Cancel] to stop.
+function startAutoDelegateCountdown() {
+  if (APP.autoDelegateTimer) return; // already running
+  if (!APP.detectedPlan || !APP.detectedPlan.tasks.length) return;
+
+  const planKey = APP.detectedPlan.tasks.map(t => t.num + ':' + t.desc.slice(0, 20)).join('|');
+  if (APP.lastDelegatedPlanKey === planKey) return;
+
+  APP.autoDelegateRemaining = 5;
+  const bar = document.getElementById('auto-delegate-bar');
+  if (!bar) return;
+
+  const renderBar = () => {
+    bar.style.display = 'flex';
+    bar.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 14px;background:rgba(166,227,161,0.12);border-top:1px solid var(--green);font-size:12px;color:var(--text)';
+    bar.innerHTML = `
+      <span>⏱ Auto-delegate dalam <b id="auto-delegate-secs">${APP.autoDelegateRemaining}</b>s...</span>
+      <span style="flex:1"></span>
+      <button id="btn-auto-delegate-now" style="background:var(--green);color:var(--bg-crust);border:none;border-radius:4px;padding:4px 10px;font-weight:600;cursor:pointer">Delegate now</button>
+      <button id="btn-auto-delegate-cancel" style="background:var(--border);color:var(--text);border:none;border-radius:4px;padding:4px 10px;cursor:pointer">Cancel</button>
+    `;
+    document.getElementById('btn-auto-delegate-now')?.addEventListener('click', () => {
+      cancelAutoDelegate();
+      delegateTasksToWorkers();
+    });
+    document.getElementById('btn-auto-delegate-cancel')?.addEventListener('click', cancelAutoDelegate);
+  };
+  renderBar();
+
+  APP.autoDelegateTimer = setInterval(() => {
+    APP.autoDelegateRemaining -= 1;
+    const secs = document.getElementById('auto-delegate-secs');
+    if (secs) secs.textContent = APP.autoDelegateRemaining;
+    if (APP.autoDelegateRemaining <= 0) {
+      cancelAutoDelegate();
+      APP.lastDelegatedPlanKey = planKey;
+      delegateTasksToWorkers();
+    }
+  }, 1000);
+}
+
+function cancelAutoDelegate() {
+  if (APP.autoDelegateTimer) {
+    clearInterval(APP.autoDelegateTimer);
+    APP.autoDelegateTimer = null;
+  }
+  const bar = document.getElementById('auto-delegate-bar');
+  if (bar) {
+    bar.style.display = 'none';
+    bar.innerHTML = '';
+  }
 }
 
 function shortenProxy(addr) {
@@ -1404,12 +1570,18 @@ function detectLeaderPlan() {
       }
       btn.textContent = `▶ Delegate ${finalTasks.length} tasks to Workers`;
     }
+
+    // Kick off the 5s auto-delegate countdown (user can cancel).
+    startAutoDelegateCountdown();
   }
 }
 
 async function delegateTasksToWorkers() {
   if (!APP.detectedPlan || !APP.detectedPlan.tasks.length) return;
-  appendSystemLog('info', 'frontend', `Delegate clicked: ${APP.detectedPlan.tasks.length} tasks detected`);
+  cancelAutoDelegate();
+  const planKey = APP.detectedPlan.tasks.map(t => t.num + ':' + t.desc.slice(0, 20)).join('|');
+  APP.lastDelegatedPlanKey = planKey;
+  appendSystemLog('info', 'frontend', `Delegate: ${APP.detectedPlan.tasks.length} tasks detected`);
 
   const btn = document.getElementById('btn-ws-delegate');
   if (btn) { btn.disabled = true; btn.textContent = 'Spawning workers...'; }
@@ -2193,13 +2365,33 @@ async function subscribeEvents() {
     const raw = p.chunk || '';
     if (!raw) return;
 
+    // Markers (handled before ANSI strip — they're plain ASCII)
+    const BUSY = '\u200B__SYNERGY_BUSY__\u200B';
+    const IDLE = '\u200B__SYNERGY_IDLE__\u200B';
+    const NEW_TURN = '\u200B__SYNERGY_NEW_TURN__\u200B';
+
+    // Marker-only chunks: update status without touching chat
+    if (raw.includes(BUSY)) {
+      APP.leaderBusy = true;
+      updateStatusBadge();
+    }
+    if (raw.includes(IDLE)) {
+      APP.leaderBusy = false;
+      APP.leaderTurnCount = (APP.leaderTurnCount || 0) + 1;
+      updateStatusBadge();
+      // After Leader settles, refresh changelog if we're past the briefing.
+      if (APP.leaderTurnCount > 1) refreshChangelog();
+    }
+
     // For workspace screen: append to chat messages (headless run mode)
     if (APP.screen === 'workspace') {
       // Strip ANSI for chat display
-      const text = raw.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
-                      .replace(/\x1b\][^\x07]*\x07/g, '')
-                      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-      if (!text) return;
+      let text = raw.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+                    .replace(/\x1b\][^\x07]*\x07/g, '')
+                    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+      // Strip our markers from the visible chat text.
+      text = text.split(BUSY).join('').split(IDLE).join('');
+      if (!text || !text.trim()) return;
 
       appendSystemLog('debug', 'leader-output', `Received ${text.length} chars: "${text.slice(0, 80)}..."`);
 
@@ -2207,7 +2399,6 @@ async function subscribeEvents() {
       APP.leaderMessages = APP.leaderMessages.filter(m => m.content !== '⏳ Thinking...');
 
       // Detect new turn marker
-      const NEW_TURN = '\u200B__SYNERGY_NEW_TURN__\u200B';
       if (text.includes(NEW_TURN)) {
         const clean = text.replace(NEW_TURN, '').trim();
         if (clean) APP.leaderMessages.push({ role: 'assistant', content: clean });
@@ -2238,6 +2429,7 @@ async function subscribeEvents() {
                   .replace(/\x1b\][^\x07]*\x07/g, '')
                   .replace(/\x1b[()][AB012]/g, '')
                   .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+    text = text.split(BUSY).join('').split(IDLE).join('').split(NEW_TURN).join('');
     APP.leaderRawBuffer = (APP.leaderRawBuffer || '') + text;
     if (APP.leaderRawBuffer.length > 50000) {
       APP.leaderRawBuffer = APP.leaderRawBuffer.slice(-30000);

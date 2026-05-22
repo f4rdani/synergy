@@ -721,18 +721,14 @@ async fn choose_leader<R: Runtime>(
     // For GUI adapters, check if the app is already running before trying to launch
     let is_gui = adapter.app_type() == AppType::Gui;
 
-    // Force free model for OpenCode + inject Leader system prompt
+    // Force free model for OpenCode + use the `plan` agent
+    // (OpenCode's `plan` agent has edit:deny — perfect for plan-only mode).
     let args = if adapter_id == "opencode" {
-        let leader_prompt = synergy_core::leader::leader_system_prompt(
-            &project_dir,
-            cfg.workers.count,
-        );
         vec![
             "--model".to_owned(),
             "opencode/deepseek-v4-flash-free".to_owned(),
-            "--pure".to_owned(),
-            "--prompt".to_owned(),
-            leader_prompt,
+            "--agent".to_owned(),
+            "plan".to_owned(),
         ]
     } else {
         Vec::new()
@@ -793,19 +789,29 @@ async fn choose_leader<R: Runtime>(
 
     // Wait for the CLI tool to fully start up before sending the system prompt.
     // OpenCode and similar TUI tools need a moment to initialize.
-    tokio::time::sleep(Duration::from_millis(2000)).await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // Start the leader output pump BEFORE sending the system prompt so we
-    // capture the startup banner and any initial output.
+    // Start the leader output pump BEFORE sending the briefing so we
+    // capture the Leader's greeting as the first chat bubble.
     spawn_leader_output_pump_tauri(app.clone(), state.session_flow.clone());
 
     // Give the pump a moment to start
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
 
-    // For OpenCode (run mode), skip the system prompt — it would consume an
-    // extra `opencode run` call and the user's first message includes intent.
-    // For other CLI tools (Aider, etc.) send the prompt as the first instruction.
-    if adapter_id != "opencode" {
+    // Send the Leader briefing as the first message so the model actually
+    // SEES it (the `--prompt` flag does not work for `opencode run`).
+    // The briefing makes the Leader auto-greet the user in Indonesian.
+    if adapter_id == "opencode" {
+        let briefing = synergy_core::leader::leader_briefing_message(
+            &project_dir,
+            cfg.workers.count,
+        );
+        let mut flow = state.session_flow.lock().await;
+        if let Err(e) = flow.send_to_leader(&briefing).await {
+            eprintln!("[choose_leader] briefing failed: {e}");
+        }
+    } else {
+        // Other CLI tools (Aider, etc.) take system prompts directly.
         let mut flow = state.session_flow.lock().await;
         let prompt = synergy_core::leader::leader_system_prompt(
             &project_dir,
@@ -1132,6 +1138,67 @@ async fn approve_plan<R: Runtime>(
 async fn get_session_flow_state(state: State<'_, AppState>) -> Result<SessionFlowState, String> {
     let flow = state.session_flow.lock().await;
     Ok(flow.snapshot())
+}
+
+/// Lightweight status check — is the Leader currently producing output?
+/// Used by the frontend status badge. The actual busy/idle state is also
+/// communicated inline in the leader-output stream via BUSY/IDLE markers.
+#[tauri::command]
+async fn get_leader_status(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let flow = state.session_flow.lock().await;
+    let connected = flow.leader_handle.is_some();
+    let phase = format!("{:?}", flow.phase);
+    let buffer_len = flow.leader_output_buffer.len();
+    drop(flow);
+
+    Ok(serde_json::json!({
+        "connected": connected,
+        "phase": phase,
+        "buffer_len": buffer_len,
+    }))
+}
+
+/// Get the git changelog for the project — list of files changed since the
+/// last commit. Used by the frontend Changes panel.
+#[tauri::command]
+async fn get_git_changes(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let project_dir = {
+        let flow = state.session_flow.lock().await;
+        flow.project_dir.clone()
+    };
+    let project_dir = project_dir.ok_or("no project")?;
+
+    let git = synergy_core::git::GitOps::new(&project_dir);
+    if !git.is_repo() {
+        return Ok(serde_json::json!({
+            "is_repo": false,
+            "summary": "(not a git repository — initialise to track changes)",
+            "files": [],
+        }));
+    }
+
+    let stat = git.diff_stat().unwrap_or_default();
+    // Parse `git diff --stat` lines: " path/file.ext | NN +-"
+    let mut files = Vec::new();
+    for line in stat.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("Update")
+            || trimmed.starts_with(char::is_numeric) && trimmed.contains("changed")
+        {
+            continue;
+        }
+        if let Some((path, rest)) = trimmed.rsplit_once('|') {
+            files.push(serde_json::json!({
+                "path": path.trim().to_owned(),
+                "summary": rest.trim().to_owned(),
+            }));
+        }
+    }
+    Ok(serde_json::json!({
+        "is_repo": true,
+        "summary": stat,
+        "files": files,
+    }))
 }
 
 /// Background task that reads Leader PTY output and emits Tauri events.
@@ -1803,6 +1870,8 @@ pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             get_workers_proxy_info,
             approve_plan,
             get_session_flow_state,
+            get_leader_status,
+            get_git_changes,
             fetch_leader_models,
             get_worker_model,
             set_worker_model_cmd,

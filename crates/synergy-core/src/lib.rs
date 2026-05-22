@@ -119,11 +119,24 @@ impl Orchestrator {
         let mut workers = self.workers.lock().await;
         let db = self.db.lock().await;
 
+        // Workers always use the free model with default `build` agent so
+        // they can actually execute (Edit/Write/Bash allowed).
+        let worker_args = if self.adapter.id() == "opencode" {
+            vec![
+                "--model".to_owned(),
+                "opencode/deepseek-v4-flash-free".to_owned(),
+                "--agent".to_owned(),
+                "build".to_owned(),
+            ]
+        } else {
+            Vec::new()
+        };
+
         for i in 0..count {
             let proxy_addr = self.proxy_manager.get_proxy_for_worker(i).await;
             let config = LaunchConfig {
                 bin_path: bin_path.to_owned(),
-                args: Vec::new(),
+                args: worker_args.clone(),
                 cwd: cwd.map(|s| s.to_owned()),
                 proxy_addr: proxy_addr.clone(),
             };
@@ -507,10 +520,7 @@ mod tests {
             AppType::Cli
         }
         async fn launch(&self, _: &LaunchConfig) -> Result<AppHandle> {
-            Ok(AppHandle {
-                pty_session: None,
-                window_hwnd: None,
-            })
+            Ok(AppHandle::empty())
         }
         async fn send_command(&self, _: &mut AppHandle, _: &str) -> Result<()> {
             Ok(())
@@ -557,10 +567,7 @@ mod tests {
         let mut workers = o.workers.try_lock().expect("not locked");
         workers.push(WorkerInstance {
             id,
-            handle: AppHandle {
-                pty_session: None,
-                window_hwnd: None,
-            },
+            handle: AppHandle::empty(),
             status: AppStatus::Idle,
             current_task: None,
             output_buffer: String::new(),

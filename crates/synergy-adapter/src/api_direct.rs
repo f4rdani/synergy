@@ -132,6 +132,7 @@ impl AppAdapter for DirectApiAdapter {
         Ok(AppHandle {
             pty_session: None,
             window_hwnd: None,
+            user_data: None,
         })
     }
 

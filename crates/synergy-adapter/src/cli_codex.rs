@@ -41,6 +41,7 @@ impl AppAdapter for CodexAdapter {
         Ok(AppHandle {
             pty_session: Some(pty),
             window_hwnd: None,
+            user_data: None,
         })
     }
 

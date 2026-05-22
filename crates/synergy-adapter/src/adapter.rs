@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 use anyhow::Result;
+use std::any::Any;
+use std::sync::Arc;
 use synergy_pty::PtySession;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +29,20 @@ pub struct LaunchConfig {
 pub struct AppHandle {
     pub pty_session: Option<PtySession>,
     pub window_hwnd: Option<usize>,
+    /// Adapter-specific per-instance state (e.g. OpenCodeRunState).
+    /// Each call to `adapter.launch()` returns a fresh handle with its own
+    /// state, so workers don't trample each other.
+    pub user_data: Option<Arc<dyn Any + Send + Sync>>,
+}
+
+impl AppHandle {
+    pub fn empty() -> Self {
+        Self {
+            pty_session: None,
+            window_hwnd: None,
+            user_data: None,
+        }
+    }
 }
 
 #[async_trait]

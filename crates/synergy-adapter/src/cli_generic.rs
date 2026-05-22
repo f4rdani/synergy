@@ -77,6 +77,7 @@ impl AppAdapter for GenericCliAdapter {
         Ok(AppHandle {
             pty_session: Some(pty),
             window_hwnd: None,
+            user_data: None,
         })
     }
 
