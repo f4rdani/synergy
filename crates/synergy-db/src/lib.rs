@@ -203,7 +203,7 @@ impl Database {
         let ended_at_str = task.ended_at.map(|dt| dt.to_rfc3339());
 
         self.conn.execute(
-            "INSERT INTO task (id, session_id, title, instruction, status, worker_id, depends_on, files_target, attempt, created_at, started_at, ended_at)
+            "INSERT OR IGNORE INTO task (id, session_id, title, instruction, status, worker_id, depends_on, files_target, attempt, created_at, started_at, ended_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 task.id,
@@ -265,6 +265,15 @@ impl Database {
         self.conn.execute(
             "UPDATE task SET attempt = ?1 WHERE id = ?2",
             params![attempt, task_id],
+        )?;
+        Ok(())
+    }
+
+    /// Update the instruction text for a task (used when Leader sends fix feedback).
+    pub fn update_task_instruction(&self, task_id: &str, instruction: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE task SET instruction = ?1 WHERE id = ?2",
+            params![instruction, task_id],
         )?;
         Ok(())
     }

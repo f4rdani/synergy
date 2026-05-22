@@ -674,6 +674,8 @@ async fn choose_leader<R: Runtime>(
     state: State<'_, AppState>,
     adapter_id: String,
     project_dir: String,
+    agent: Option<String>,
+    model: Option<String>,
 ) -> Result<String, String> {
     // Create .synergy dir inside project_dir and open DB there
     let synergy_dir = format!("{}/.synergy", &project_dir);
@@ -721,14 +723,13 @@ async fn choose_leader<R: Runtime>(
     // For GUI adapters, check if the app is already running before trying to launch
     let is_gui = adapter.app_type() == AppType::Gui;
 
-    // Force free model for OpenCode + use the `plan` agent
-    // (OpenCode's `plan` agent has edit:deny — perfect for plan-only mode).
+    // Force free model for OpenCode + use the `plan` agent by default, but allow overrides
     let args = if adapter_id == "opencode" {
         vec![
             "--model".to_owned(),
-            "opencode/deepseek-v4-flash-free".to_owned(),
+            model.unwrap_or_else(|| "opencode/deepseek-v4-flash-free".to_owned()),
             "--agent".to_owned(),
-            "plan".to_owned(),
+            agent.unwrap_or_else(|| "build".to_owned()),
         ]
     } else {
         Vec::new()
@@ -801,11 +802,23 @@ async fn choose_leader<R: Runtime>(
     // Send the Leader briefing as the first message so the model actually
     // SEES it (the `--prompt` flag does not work for `opencode run`).
     // The briefing makes the Leader auto-greet the user in Indonesian.
+    //
+    // IMPORTANT: The briefing IS the model health check. If the model is
+    // rate-limited, the auto-switch mechanism in send_command will kick in
+    // (timeout 20s → try next free model). The user sees the switch happen
+    // in the chat as "⟳ Model X rate-limited. Switching to Y..."
+    // Once a working model responds, the greeting appears automatically.
     if adapter_id == "opencode" {
         let briefing = synergy_core::leader::leader_briefing_message(
             &project_dir,
             cfg.workers.count,
         );
+
+        // Emit status so user knows what's happening
+        let _ = app.emit("leader-output", serde_json::json!({
+            "chunk": "\u{200B}__SYNERGY_NEW_TURN__\u{200B}\n"
+        }));
+
         let mut flow = state.session_flow.lock().await;
         if let Err(e) = flow.send_to_leader(&briefing).await {
             eprintln!("[choose_leader] briefing failed: {e}");
@@ -822,7 +835,19 @@ async fn choose_leader<R: Runtime>(
 
     // Store DB handle
     let shared_db = Arc::new(Mutex::new(db));
-    *state.db.lock().await = Some(shared_db);
+    *state.db.lock().await = Some(shared_db.clone());
+
+    // Start the task-file watcher: polls .synergy/tasks/ready.json
+    // When Leader writes ready.json, Synergy auto-spawns Workers and
+    // feeds each one the content of its task-N.md file.
+    spawn_task_file_watcher(
+        app.clone(),
+        state.session_flow.clone(),
+        state.orchestrator.clone(),
+        state.db.clone(),
+        project_dir.clone(),
+        shared_db,
+    );
 
     Ok(session_id)
 }
@@ -933,6 +958,8 @@ async fn resize_leader_pty(state: State<'_, AppState>, rows: u16, cols: u16) -> 
 async fn restart_leader<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
+    agent: Option<String>,
+    model: Option<String>,
 ) -> Result<(), String> {
     let (adapter_id, project_dir) = {
         let flow = state.session_flow.lock().await;
@@ -952,7 +979,7 @@ async fn restart_leader<R: Runtime>(
     }
 
     // Re-launch same leader
-    choose_leader(app, state, adapter_id, project_dir).await?;
+    choose_leader(app, state, adapter_id, project_dir, agent, model).await?;
     Ok(())
 }
 
@@ -1009,6 +1036,22 @@ async fn check_opencode_update() -> Result<String, String> {
         }
     } else {
         Err(format!("Upgrade failed: {}", combined.trim()))
+    }
+}
+
+/// Install or enable Cloudflare WARP for IP rotation.
+/// Downloads and installs silently if not present, or enables proxy mode if already installed.
+#[tauri::command]
+async fn install_warp<R: Runtime>(app: AppHandle<R>) -> Result<String, String> {
+    log_event(&app, "info", "warp", "Checking/installing Cloudflare WARP...");
+
+    let result = synergy_adapter::ensure_warp_installed().await;
+    if result {
+        log_event(&app, "info", "warp", "✓ WARP proxy active on 127.0.0.1:40000");
+        Ok("WARP proxy active. All OpenCode requests will route through Cloudflare.".to_owned())
+    } else {
+        log_event(&app, "warn", "warp", "WARP installation/activation failed");
+        Err("Failed to install/activate WARP. Try installing manually from https://1.1.1.1/".to_owned())
     }
 }
 
@@ -1201,17 +1244,267 @@ async fn get_git_changes(state: State<'_, AppState>) -> Result<serde_json::Value
     }))
 }
 
+// ─── Task File Watcher (file-based delegation) ──────────────────────────────
+//
+// The Leader AI writes task files into `.synergy/tasks/`:
+//   plan.md        — overall plan summary
+//   task-1.md      — instruction for Worker 1
+//   task-2.md      — instruction for Worker 2
+//   ...
+//   ready.json     — manifest that triggers Synergy to spawn Workers
+//
+// This watcher polls for ready.json every 2 seconds. Once found, it:
+// 1. Parses ready.json to get task metadata
+// 2. Reads each task-N.md for the full instruction
+// 3. Inserts tasks into the DB with proper dependencies
+// 4. Spawns Workers and starts the orchestrator tick loop
+// 5. Renames ready.json → ready.done.json to prevent re-triggering
+
+/// Schema for `.synergy/tasks/ready.json` written by the Leader.
+#[derive(Debug, Clone, Deserialize)]
+struct ReadyJson {
+    total_tasks: u32,
+    tasks: Vec<ReadyTask>,
+    #[serde(default)]
+    parallel_groups: Vec<Vec<u32>>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct ReadyTask {
+    id: u32,
+    title: String,
+    #[serde(default)]
+    files: Vec<String>,
+    #[serde(default)]
+    depends_on: Vec<u32>,
+}
+
+fn spawn_task_file_watcher<R: Runtime>(
+    app: AppHandle<R>,
+    session_flow: Arc<Mutex<SessionFlowController>>,
+    orchestrator_slot: Arc<Mutex<Option<Arc<Orchestrator>>>>,
+    _db_slot: Arc<Mutex<Option<Arc<Mutex<Database>>>>>,
+    project_dir: String,
+    shared_db: Arc<Mutex<Database>>,
+) {
+    tokio::spawn(async move {
+        let tasks_dir = format!("{}/.synergy/tasks", &project_dir);
+        let ready_path = format!("{}/ready.json", &tasks_dir);
+        let done_path = format!("{}/ready.done.json", &tasks_dir);
+
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+
+            // Check if session is still active
+            {
+                let flow = session_flow.lock().await;
+                if flow.phase == SessionPhase::Complete || flow.leader_handle.is_none() {
+                    break;
+                }
+            }
+
+            // Check if ready.json exists
+            let ready_file = std::path::Path::new(&ready_path);
+            if !ready_file.exists() {
+                continue;
+            }
+
+            log_event(&app, "info", "task-watcher", "🎯 ready.json detected! Starting worker delegation...");
+
+            // Read and parse ready.json
+            let ready_content = match tokio::fs::read_to_string(&ready_path).await {
+                Ok(c) => c,
+                Err(e) => {
+                    log_event(&app, "error", "task-watcher", format!("Failed to read ready.json: {e}"));
+                    continue;
+                }
+            };
+
+            let ready: ReadyJson = match serde_json::from_str(&ready_content) {
+                Ok(r) => r,
+                Err(e) => {
+                    log_event(&app, "error", "task-watcher", format!("Failed to parse ready.json: {e}"));
+                    // Rename to .error.json so Leader can see the issue
+                    let err_path = format!("{}/ready.error.json", &tasks_dir);
+                    let _ = tokio::fs::rename(&ready_path, &err_path).await;
+                    continue;
+                }
+            };
+
+            log_event(&app, "info", "task-watcher",
+                format!("Plan: {} tasks, parallel_groups: {:?}", ready.total_tasks, ready.parallel_groups));
+
+            // Read each task-N.md file for full instructions
+            let mut task_instructions: Vec<(u32, String, String)> = Vec::new(); // (id, title, instruction)
+            for task_meta in &ready.tasks {
+                let task_file = format!("{}/task-{}.md", &tasks_dir, task_meta.id);
+                let instruction = match tokio::fs::read_to_string(&task_file).await {
+                    Ok(content) => content,
+                    Err(_) => {
+                        // Fallback: use the title as instruction
+                        log_event(&app, "warn", "task-watcher",
+                            format!("task-{}.md not found, using title as instruction", task_meta.id));
+                        task_meta.title.clone()
+                    }
+                };
+                task_instructions.push((task_meta.id, task_meta.title.clone(), instruction));
+            }
+
+            // Get session_id
+            let session_id = {
+                let flow = session_flow.lock().await;
+                match &flow.session_id {
+                    Some(id) => id.clone(),
+                    None => {
+                        log_event(&app, "error", "task-watcher", "No session_id available");
+                        continue;
+                    }
+                }
+            };
+
+            // Build Task records with proper dependencies
+            let now = chrono::Utc::now();
+            let task_id_map: std::collections::HashMap<u32, String> = ready.tasks.iter()
+                .map(|t| (t.id, format!("t_{}_{}", &session_id, t.id)))
+                .collect();
+
+            let mut tasks_to_insert: Vec<Task> = Vec::new();
+            for task_meta in &ready.tasks {
+                let db_task_id = task_id_map.get(&task_meta.id).unwrap().clone();
+                let depends_on: Vec<String> = task_meta.depends_on.iter()
+                    .filter_map(|dep_id| task_id_map.get(dep_id).cloned())
+                    .collect();
+
+                let instruction = task_instructions.iter()
+                    .find(|(id, _, _)| *id == task_meta.id)
+                    .map(|(_, _, instr)| instr.clone())
+                    .unwrap_or_else(|| task_meta.title.clone());
+
+                let status = if depends_on.is_empty() {
+                    TaskStatus::Pending
+                } else {
+                    TaskStatus::Blocked
+                };
+
+                tasks_to_insert.push(Task {
+                    id: db_task_id,
+                    session_id: session_id.clone(),
+                    title: task_meta.title.clone(),
+                    instruction,
+                    status,
+                    worker_id: None,
+                    depends_on,
+                    files_target: task_meta.files.clone(),
+                    attempt: 0,
+                    created_at: now,
+                    started_at: None,
+                    ended_at: None,
+                });
+            }
+
+            // Insert tasks into DB
+            {
+                let db = shared_db.lock().await;
+                for t in &tasks_to_insert {
+                    if let Err(e) = db.insert_task(t) {
+                        log_event(&app, "error", "task-watcher", format!("Failed to insert task {}: {e}", t.id));
+                    }
+                }
+            }
+            log_event(&app, "info", "task-watcher", format!("Inserted {} tasks into DB", tasks_to_insert.len()));
+
+            // Spawn Workers via orchestrator
+            let cfg = SynergyConfig::load_default().unwrap_or_default();
+            let worker_adapter_id = cfg.workers.adapter.clone();
+            let worker_bin = resolve_binary_path(&cfg.workers.bin_path)
+                .or_else(|| synergy_adapter::find_opencode_binary())
+                .unwrap_or_else(|| cfg.workers.bin_path.clone());
+            let max_workers = cfg.workers.count;
+
+            let independent_count = tasks_to_insert.iter().filter(|t| t.depends_on.is_empty()).count();
+            let actual_worker_count = (independent_count as u32).min(max_workers).max(1);
+
+            log_event(&app, "info", "task-watcher",
+                format!("Spawning {} workers (adapter={}, bin={})", actual_worker_count, worker_adapter_id, worker_bin));
+
+            let proxy_configs = cfg.proxy.to_proxy_configs(actual_worker_count);
+            let pm = ProxyManager::new(proxy_configs);
+
+            let orchestrator = Orchestrator::with_shared_db(shared_db.clone(), pm, session_id.clone())
+                .with_adapter(pick_adapter(&worker_adapter_id));
+
+            if let Err(e) = orchestrator
+                .spawn_workers(actual_worker_count as usize, &worker_bin, Some(project_dir.as_str()))
+                .await
+            {
+                log_event(&app, "error", "task-watcher", format!("Failed to spawn workers: {e:#}"));
+                continue;
+            }
+
+            log_event(&app, "info", "task-watcher", format!("✓ {} workers spawned successfully!", actual_worker_count));
+
+            // Set worker model if configured
+            if !cfg.workers.model.is_empty() {
+                if let Err(e) = orchestrator.set_worker_model(&cfg.workers.model).await {
+                    log_event(&app, "warn", "task-watcher", format!("Failed to set worker model: {e}"));
+                }
+            }
+
+            let orch_arc = Arc::new(orchestrator);
+            spawn_tick_loop(app.clone(), orch_arc.clone());
+            spawn_output_pump(app.clone(), orch_arc.clone());
+
+            // Store orchestrator
+            *orchestrator_slot.lock().await = Some(orch_arc.clone());
+
+            // Update session flow
+            {
+                let mut flow = session_flow.lock().await;
+                flow.approve_plan(ready_content.clone(), ready.total_tasks);
+                flow.advance_to_executing();
+            }
+
+            // Emit event to frontend
+            let _ = app.emit("session-state-changed", serde_json::json!({
+                "phase": "executing",
+                "total_tasks": ready.total_tasks,
+                "workers": actual_worker_count,
+            }));
+
+            // Spawn completion monitor
+            spawn_completion_monitor(app.clone(), session_flow.clone(), orch_arc, shared_db.clone());
+
+            // Rename ready.json → ready.done.json to prevent re-triggering
+            if let Err(e) = tokio::fs::rename(&ready_path, &done_path).await {
+                log_event(&app, "warn", "task-watcher", format!("Could not rename ready.json: {e}"));
+                // Try to delete instead
+                let _ = tokio::fs::remove_file(&ready_path).await;
+            }
+
+            log_event(&app, "info", "task-watcher",
+                format!("🚀 Delegation complete! {} tasks queued, {} workers active. Orchestrator running.", 
+                    tasks_to_insert.len(), actual_worker_count));
+
+            break; // Watcher's job is done for this session
+        }
+        eprintln!("[task-watcher] stopped");
+    });
+}
+
 /// Background task that reads Leader PTY output and emits Tauri events.
 fn spawn_leader_output_pump_tauri<R: Runtime>(
     app: AppHandle<R>,
     session_flow: Arc<Mutex<SessionFlowController>>,
 ) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(50)); // faster poll
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut consecutive_empty = 0u32;
         loop {
-            interval.tick().await;
+            let poll_ms = if consecutive_empty < 20 { 50 } else { 200 };
+            tokio::time::sleep(Duration::from_millis(poll_ms)).await;
+
             let output = {
                 let mut flow = session_flow.lock().await;
                 if flow.phase == SessionPhase::Complete || flow.leader_handle.is_none() {
@@ -1227,11 +1520,6 @@ fn spawn_leader_output_pump_tauri<R: Runtime>(
                 }
                 _ => {
                     consecutive_empty += 1;
-                    // After 60 seconds of no output, stop pumping
-                    if consecutive_empty > 1200 {
-                        eprintln!("[leader-pump] no output for 60s, stopping");
-                        break;
-                    }
                 }
             }
         }
@@ -1239,8 +1527,22 @@ fn spawn_leader_output_pump_tauri<R: Runtime>(
     });
 }
 
-/// Background task that monitors when all tasks are complete, then composes
-/// and sends the batch report to the Leader for review.
+/// Background task that implements the Leader review loop:
+///
+/// 1. Monitor each task as it completes
+/// 2. When a task finishes → send per-task report to Leader
+/// 3. Leader reviews (reads the task-N.md + checks output) and either:
+///    a. Approves → mark task as verified
+///    b. Sends fix instruction → re-assign to the same Worker
+/// 4. Loop until ALL tasks are verified
+/// 5. Leader sends final summary to user
+///
+/// The Leader communicates via a file-based protocol:
+/// - Synergy writes `.synergy/tasks/report-N.md` when task N completes
+/// - Leader reads it, then writes `.synergy/tasks/verdict-N.json`:
+///   {"task_id": N, "verdict": "pass"} or
+///   {"task_id": N, "verdict": "fix", "instruction": "...fix details..."}
+/// - Synergy picks up the verdict and acts accordingly
 fn spawn_completion_monitor<R: Runtime>(
     app: AppHandle<R>,
     session_flow: Arc<Mutex<SessionFlowController>>,
@@ -1248,87 +1550,299 @@ fn spawn_completion_monitor<R: Runtime>(
     db: Arc<Mutex<Database>>,
 ) {
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_millis(1000));
+        let project_dir = {
+            let flow = session_flow.lock().await;
+            flow.project_dir.clone().unwrap_or_default()
+        };
+        let tasks_dir = format!("{}/.synergy/tasks", &project_dir);
+
+        // Track which tasks have been reported to Leader
+        let mut reported_tasks: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Track which tasks have been verified (approved by Leader)
+        let mut verified_tasks: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        let mut interval = tokio::time::interval(Duration::from_millis(1500));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
         loop {
             interval.tick().await;
 
-            let flow = session_flow.lock().await;
-            if flow.phase != SessionPhase::Executing {
-                if flow.phase == SessionPhase::Complete {
-                    break;
-                }
-                drop(flow);
-                continue;
-            }
-            let session_id = match &flow.session_id {
-                Some(id) => id.clone(),
-                None => {
-                    drop(flow);
-                    continue;
-                }
-            };
-            drop(flow);
-
-            // Check if all tasks are done
-            let all_done = {
-                let db_lock = db.lock().await;
-                match db_lock.get_all_tasks(&session_id) {
-                    Ok(tasks) => {
-                        !tasks.is_empty()
-                            && tasks.iter().all(|t| {
-                                matches!(
-                                    t.status,
-                                    TaskStatus::Done | TaskStatus::Failed | TaskStatus::Escalated
-                                )
-                            })
-                    }
-                    Err(_) => false,
-                }
+            // Check session phase
+            let (phase, session_id) = {
+                let flow = session_flow.lock().await;
+                (flow.phase, flow.session_id.clone())
             };
 
-            if all_done {
-                // Compose batch report
-                let completed_tasks = {
-                    let db_lock = db.lock().await;
-                    db_lock.get_all_tasks(&session_id).unwrap_or_default()
-                };
-                let report = synergy_core::leader::compose_batch_report(&completed_tasks);
-
-                // Advance to Reviewing and send report to Leader
-                {
-                    let mut flow = session_flow.lock().await;
-                    flow.advance_to_reviewing();
-                    let _ = flow.send_to_leader(&report).await;
-                }
-
-                let _ = app.emit(
-                    "session-state-changed",
-                    serde_json::json!({"phase": "reviewing"}),
-                );
-
-                // Wait for leader approval (poll for up to 30 seconds)
-                let approval_deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-                loop {
-                    tokio::time::sleep(Duration::from_secs(2)).await;
-
-                    let flow = session_flow.lock().await;
-                    let approved = synergy_core::leader::is_approval(&flow.leader_output_buffer);
-                    drop(flow);
-
-                    if approved || tokio::time::Instant::now() >= approval_deadline {
-                        let mut flow = session_flow.lock().await;
-                        flow.advance_to_complete();
-                        let _ = app.emit(
-                            "session-state-changed",
-                            serde_json::json!({"phase": "complete"}),
-                        );
-                        break;
-                    }
-                }
+            if phase == SessionPhase::Complete {
                 break;
             }
+            if phase != SessionPhase::Executing && phase != SessionPhase::Reviewing {
+                continue;
+            }
+
+            let session_id = match session_id {
+                Some(id) => id,
+                None => continue,
+            };
+
+            // Get all tasks from DB
+            let all_tasks = {
+                let db_lock = db.lock().await;
+                db_lock.get_all_tasks(&session_id).unwrap_or_default()
+            };
+
+            // ── STEP 1: Report newly completed tasks to Leader ──────────────
+            for task in all_tasks.iter() {
+                if task.status != TaskStatus::Done {
+                    continue;
+                }
+                if reported_tasks.contains(&task.id) {
+                    continue;
+                }
+
+                // Task just completed! Write report file and notify Leader.
+                reported_tasks.insert(task.id.clone());
+
+                let task_num = task.id.split('_').last().unwrap_or("?");
+                let worker_id = task.worker_id.map(|w| w.to_string()).unwrap_or_else(|| "?".to_owned());
+                let duration = match (task.started_at, task.ended_at) {
+                    (Some(s), Some(e)) => format!("{}s", (e - s).num_seconds().max(0)),
+                    _ => "?".to_owned(),
+                };
+
+                // Write report-N.md for Leader to review
+                let report_content = format!(
+                    "# Task {} Report\n\n\
+                     ## Status: COMPLETED\n\
+                     - **Title**: {}\n\
+                     - **Worker**: {}\n\
+                     - **Duration**: {}\n\
+                     - **Files created/modified**: {}\n\n\
+                     ## Original Instruction\n\
+                     {}\n\n\
+                     ## Action Required\n\
+                     Please review the output. Write verdict-{}.json with:\n\
+                     - `{{\"task_id\": {}, \"verdict\": \"pass\"}}` if everything looks good\n\
+                     - `{{\"task_id\": {}, \"verdict\": \"fix\", \"instruction\": \"...what to fix...\"}}` if fixes are needed\n",
+                    task_num,
+                    task.title,
+                    worker_id,
+                    duration,
+                    if task.files_target.is_empty() { "(none specified)".to_owned() } else { task.files_target.join(", ") },
+                    task.instruction.chars().take(500).collect::<String>(),
+                    task_num,
+                    task_num,
+                    task_num,
+                );
+
+                let report_path = format!("{}/report-{}.md", &tasks_dir, task_num);
+                if let Err(e) = tokio::fs::write(&report_path, &report_content).await {
+                    log_event(&app, "warn", "review-loop", format!("Failed to write report-{}.md: {e}", task_num));
+                }
+
+                // Send notification to Leader via PTY
+                let leader_msg = format!(
+                    "\n[SYNERGY] ✅ Task {} selesai (Worker {}, {}). \
+                     File: {}. \
+                     Silakan review dan tulis verdict-{}.json (pass/fix).\n",
+                    task_num,
+                    worker_id,
+                    duration,
+                    if task.files_target.is_empty() { "various".to_owned() } else { task.files_target.join(", ") },
+                    task_num,
+                );
+
+                {
+                    let mut flow = session_flow.lock().await;
+                    let _ = flow.send_to_leader(&leader_msg).await;
+                }
+
+                log_event(&app, "info", "review-loop",
+                    format!("Task {} completed → report sent to Leader for review", task_num));
+
+                let _ = app.emit("task-completed", serde_json::json!({
+                    "task_id": &task.id,
+                    "task_num": task_num,
+                    "title": &task.title,
+                    "worker_id": task.worker_id,
+                    "files": &task.files_target,
+                }));
+            }
+
+            // ── STEP 2: Check for Leader verdicts ───────────────────────────
+            for task in all_tasks.iter() {
+                if !reported_tasks.contains(&task.id) {
+                    continue;
+                }
+                if verified_tasks.contains(&task.id) {
+                    continue;
+                }
+
+                let task_num = task.id.split('_').last().unwrap_or("?");
+                let verdict_path = format!("{}/verdict-{}.json", &tasks_dir, task_num);
+
+                if !std::path::Path::new(&verdict_path).exists() {
+                    continue;
+                }
+
+                // Read verdict
+                let verdict_content = match tokio::fs::read_to_string(&verdict_path).await {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+
+                #[derive(Deserialize)]
+                struct Verdict {
+                    #[allow(dead_code)]
+                    task_id: u32,
+                    verdict: String,
+                    #[serde(default)]
+                    instruction: String,
+                }
+
+                let verdict: Verdict = match serde_json::from_str(&verdict_content) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        log_event(&app, "warn", "review-loop",
+                            format!("Invalid verdict-{}.json: {e}", task_num));
+                        continue;
+                    }
+                };
+
+                // Remove verdict file so it doesn't get re-processed
+                let _ = tokio::fs::remove_file(&verdict_path).await;
+
+                match verdict.verdict.as_str() {
+                    "pass" | "ok" | "approved" | "lgtm" => {
+                        verified_tasks.insert(task.id.clone());
+                        log_event(&app, "info", "review-loop",
+                            format!("✓ Task {} PASSED Leader review", task_num));
+
+                        let _ = app.emit("task-verified", serde_json::json!({
+                            "task_id": &task.id,
+                            "task_num": task_num,
+                            "verdict": "pass",
+                        }));
+                    }
+                    "fix" | "retry" | "revise" => {
+                        log_event(&app, "info", "review-loop",
+                            format!("⟳ Task {} needs FIX: {}", task_num, &verdict.instruction));
+
+                        // Re-queue the task with the fix instruction
+                        let fix_instruction = format!(
+                            "[FIX REQUIRED — Leader review feedback]\n\n\
+                             Original task: {}\n\n\
+                             Fix instruction from Leader:\n{}\n\n\
+                             Please fix the issues described above in the files you previously created/modified.",
+                            task.title,
+                            verdict.instruction,
+                        );
+
+                        // Reset task status to Pending so orchestrator picks it up
+                        {
+                            let db_lock = db.lock().await;
+                            db_lock.update_task_status(&task.id, TaskStatus::Pending).ok();
+                            // Update the instruction in DB (for the enriched fix context)
+                            db_lock.update_task_instruction(&task.id, &fix_instruction).ok();
+                        }
+
+                        // Remove from reported so it gets re-reported when done again
+                        reported_tasks.remove(&task.id);
+
+                        let _ = app.emit("task-fix-requested", serde_json::json!({
+                            "task_id": &task.id,
+                            "task_num": task_num,
+                            "instruction": &verdict.instruction,
+                        }));
+
+                        // Notify Leader
+                        {
+                            let mut flow = session_flow.lock().await;
+                            let _ = flow.send_to_leader(&format!(
+                                "\n[SYNERGY] ⟳ Task {} di-reassign ke Worker untuk diperbaiki.\n",
+                                task_num
+                            )).await;
+                        }
+                    }
+                    other => {
+                        log_event(&app, "warn", "review-loop",
+                            format!("Unknown verdict '{}' for task {}", other, task_num));
+                    }
+                }
+            }
+
+            // ── STEP 3: Check if ALL tasks are verified ─────────────────────
+            let total_tasks = all_tasks.len();
+            let all_verified = total_tasks > 0
+                && all_tasks.iter().all(|t| {
+                    verified_tasks.contains(&t.id)
+                        || matches!(t.status, TaskStatus::Failed | TaskStatus::Escalated)
+                });
+
+            if all_verified {
+                log_event(&app, "info", "review-loop",
+                    format!("🎉 All {} tasks verified by Leader!", total_tasks));
+
+                // Send final summary to Leader
+                let summary = format!(
+                    "\n[SYNERGY] 🎉 Semua {} task sudah selesai dan lulus review!\n\
+                     Silakan beri laporan akhir ke user tentang apa yang sudah dibangun.\n",
+                    total_tasks
+                );
+                {
+                    let mut flow = session_flow.lock().await;
+                    let _ = flow.send_to_leader(&summary).await;
+                    flow.advance_to_reviewing();
+                }
+
+                let _ = app.emit("session-state-changed", serde_json::json!({
+                    "phase": "reviewing",
+                    "all_verified": true,
+                    "total_tasks": total_tasks,
+                }));
+
+                // Wait for Leader to compose the final report to user (give it time)
+                tokio::time::sleep(Duration::from_secs(15)).await;
+
+                // Mark session complete
+                {
+                    let mut flow = session_flow.lock().await;
+                    flow.advance_to_complete();
+                }
+                let _ = app.emit("session-state-changed", serde_json::json!({
+                    "phase": "complete",
+                }));
+
+                break;
+            }
+
+            // ── STEP 4: Handle failed/escalated tasks ───────────────────────
+            let has_escalated = all_tasks.iter().any(|t| t.status == TaskStatus::Escalated);
+            if has_escalated {
+                let escalated: Vec<&Task> = all_tasks.iter()
+                    .filter(|t| t.status == TaskStatus::Escalated)
+                    .collect();
+
+                for task in &escalated {
+                    if reported_tasks.contains(&task.id) {
+                        continue;
+                    }
+                    reported_tasks.insert(task.id.clone());
+
+                    let task_num = task.id.split('_').last().unwrap_or("?");
+                    let msg = format!(
+                        "\n[SYNERGY] ⚠️ Task {} ESCALATED (gagal setelah {} percobaan). \
+                         Title: {}. Perlu intervensi manual.\n",
+                        task_num, task.attempt, task.title
+                    );
+                    {
+                        let mut flow = session_flow.lock().await;
+                        let _ = flow.send_to_leader(&msg).await;
+                    }
+                }
+            }
         }
+        eprintln!("[review-loop] stopped");
     });
 }
 
@@ -1343,12 +1857,30 @@ async fn fetch_leader_models(state: State<'_, AppState>) -> Result<Vec<ModelInfo
     drop(flow);
 
     match adapter_id.as_str() {
+        // For OpenCode, run the `models` subcommand directly
+        "opencode" => {
+            let mut bin_path = resolve_adapter_bin("opencode");
+            if let Some(bundled) = synergy_adapter::find_opencode_binary() {
+                bin_path = bundled;
+            }
+            let output = tokio::process::Command::new(&bin_path)
+                .arg("models")
+                .output()
+                .await
+                .map_err(|e| format!("Failed to run opencode models: {e}"))?;
+            let output_str = String::from_utf8_lossy(&output.stdout);
+            let models = parse_leader_model_list(&output_str, &adapter_id);
+            if models.is_empty() {
+                Ok(known_models_for_provider(&adapter_id))
+            } else {
+                Ok(models)
+            }
+        }
         // CLI-based leaders: query via PTY
-        "opencode" | "aider" | "claude-cli" | "codex-cli" | "antigravity" => {
+        "aider" | "claude-cli" | "codex-cli" | "antigravity" => {
             // Send model listing command
             let cmd = match adapter_id.as_str() {
                 "claude-cli" => "/model",
-                "opencode" => "/model",
                 "aider" => "/models",
                 "codex-cli" => "codex models",
                 _ => "/model",
@@ -1864,6 +2396,7 @@ pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             resize_leader_pty,
             restart_leader,
             check_opencode_update,
+            install_warp,
             run_opencode_command,
             get_public_ip,
             get_leader_info,

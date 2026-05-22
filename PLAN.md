@@ -136,9 +136,9 @@ task pemrograman secara paralel.
 ├─────────────────────────────────────────────────────────────────┤
 │  File · Edit · View · Terminal · Help                            │
 ├─────────────────────────────────────────────────────────────────┤
-│  🟢 LEADER (opencode plan-only)  IP: 1.2.3.4  │ STATUS: Idle    │
+│  🟢 LEADER (opencode --agent build)  IP: 1.2.3.4  │ STATUS     │
 │  ┌───────────────────────────────────────┬──────────────────────┤
-│  │ Chat (Leader)                         │ Workers (6)           │
+│  │ Chat (Leader ↔ User)                  │ Workers (6)           │
 │  │                                       │ ┌──────────────────┐ │
 │  │ AI: Halo! Saya Leader. Punya 6        │ │ W1 idle  IP:5.5.5│ │
 │  │     Workers paralel. Mau bangun apa?  │ │                  │ │
@@ -150,30 +150,35 @@ task pemrograman secara paralel.
 │  │     2. Create LoginController — ...   │ │ > Editing User..│ │
 │  │     3. Create login.php view — ...    │ ├──────────────────┤ │
 │  │                                       │ │ W4 working ...   │ │
-│  │ [Auto-delegating in 5s... Cancel]     │ │                  │ │
+│  │ User: laksanakan                      │ │                  │ │
 │  │                                       │ ...                  │
-│  ├───────────────────────────────────────┼──────────────────────┤
-│  │ [Type message or /command...]   [Send]│ Changes (3 files)    │
+│  │ AI: ✅ Task files written. Spawning   │                      │
+│  │     6 Workers now.                    │ Changes (3 files)    │
 │  │                                       │ + User.php (new)     │
-│  │                                       │ + LoginCtrl.php (new)│
-│  │                                       │ M routes.php (mod)   │
+│  │ [SYNERGY] ✅ Task 1 selesai (W1,12s) │ + LoginCtrl.php (new)│
+│  │ AI: (reviews, writes verdict-1.json)  │ M routes.php (mod)   │
+│  ├───────────────────────────────────────┼──────────────────────┤
+│  │ [Type message or /command...]   [Send]│                      │
 ├──┴───────────────────────────────────────┴──────────────────────┤
-│ Synergy v0.8.0  📁 myproject  Leader: opencode  Workers: 3/6 busy│
+│ Synergy v0.9.0  📁 myproject  Leader: opencode  Workers: 3/6 busy│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 **Flow:**
 
-1. **Boot**: Loading screen → check update → spawn OpenCode dengan briefing.
-2. **Briefing**: Leader auto-respond greeting setelah briefing.
-3. **User input**: User chat "buatkan X".
-4. **Leader plans**: OpenCode respond numbered plan (DENGAN tools disabled).
-5. **Auto-delegate**: 5s countdown, lalu auto-spawn Workers + dispatch tasks.
-6. **Workers execute**: Tiap Worker run `opencode run --continue "task..."` di project dir.
-7. **Status updates**: Header badge update real-time (thinking/working/done).
-8. **Changelog**: Setelah semua Worker done, run `git diff --stat`, tampilkan.
-9. **Leader review**: Auto-send batch report ke Leader untuk review.
-10. **Loop atau done**: Leader approve atau request fix.
+1. **Boot**: Loading screen → check update → spawn OpenCode (--agent build) with briefing.
+2. **Briefing**: Leader auto-respond greeting in Indonesian.
+3. **User input**: User chats "buatkan X".
+4. **Leader plans**: Discusses, presents numbered plan in chat.
+5. **User approves**: User says "laksanakan" / "go" / "ok".
+6. **Leader writes files**: .synergy/tasks/plan.md + task-N.md + ready.json (LAST).
+7. **Task-watcher triggers**: Detects ready.json → spawns Workers → starts orchestrator.
+8. **Workers execute**: Each Worker gets task-N.md content as instruction.
+9. **Per-task review**: When task N completes → Synergy writes report-N.md → notifies Leader.
+10. **Leader reviews**: Reads output files, writes verdict-N.json (pass/fix).
+11. **Fix loop**: If verdict=fix → Worker retries with fix instruction. Loop until pass.
+12. **All pass**: Synergy notifies Leader → Leader sends final summary to user.
+13. **Done**: Session complete.
 
 ---
 

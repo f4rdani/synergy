@@ -6,7 +6,7 @@
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
 <meta http-equiv="Pragma" content="no-cache"/>
 <meta http-equiv="Expires" content="0"/>
-<title>Synergy v0.8.0 — Plan-only Leader</title>
+<title>Synergy v0.9.0 — AI Workspace Orchestrator</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
@@ -438,6 +438,7 @@ const APP = {
   showSettings: false,
   showModelSelector: false,
   modelLoading: false,
+  modelSelectorTarget: 'worker', // 'worker' or 'leader'
   workerModel: '',
   availableModels: [],
   recentProjects: [],
@@ -448,6 +449,8 @@ const APP = {
   leaderModels: [],
   selectedLeaderModel: null,
   showProviderList: false,
+  leaderAgent: null,
+  leaderModel: null,
   // v0.8.0: Leader status + auto-delegate
   leaderBusy: false,        // true while opencode run is in flight
   leaderTurnCount: 0,       // # of completed turns (used to skip briefing greeting)
@@ -602,7 +605,7 @@ function initWorkspaceTerminals() {
     const btn = document.getElementById('btn-ws-restart');
     if (btn) { btn.disabled = true; btn.textContent = 'Restarting...'; }
     try {
-      await invoke('restart_leader', {});
+      await invoke('restart_leader', { agent: APP.leaderAgent, model: APP.leaderModel });
       APP.leaderMessages = [{ role: 'system', content: 'OpenCode restarted. Ready for new messages.' }];
       updateLeaderChatUI();
     } catch (e) {
@@ -655,6 +658,32 @@ const SLASH_COMMANDS = {
   '/agents': { args: ['agent', 'list'], desc: 'List agents' },
 };
 
+// Detect "go ahead, execute the plan" intent in user messages.
+// When detected and a plan exists, the message is forwarded to Leader
+// so it writes .synergy/tasks/ files (file-based delegation mechanism).
+function isApprovalIntent(text) {
+  if (!text) return false;
+  const t = text.trim().toLowerCase();
+  if (!t) return false;
+  // Emoji-only or single-word approvals
+  if (/^[👍🚀✅✓👌🔥💯]+$/u.test(text.trim())) return true;
+  // Strict patterns: short, decisive verbs
+  const patterns = [
+    /^(ok|oke|okey|okay|yes|ya|yup|yep|sip|siap|gas|go|jalan|mulai|start|run|execute)[!.\s]*$/i,
+    /^(laksanakan|kerjakan|eksekusi|jalankan|gaspol|gasskeun|gass|setuju|approved?|approve|lgtm|deploy|lanjut|lanjutkan|lanjuten|teruskan|proceed)[!.\s]*$/i,
+    /^(go ahead|do it|make it so|ship it|execute( the)? plan|run( the)? plan|delegate|spawn workers?|start workers?)[!.\s]*$/i,
+    /\b(laksanakan|kerjakan|eksekusi|delegate( now)?|execute (the )?plan|spawn (the )?workers?|start workers?)\b/i,
+    // Approval markers anywhere in a short message (≤ 80 chars)
+  ];
+  for (const p of patterns) {
+    if (p.test(text)) return true;
+  }
+  if (text.length <= 60 && /\b(go|gas|sip|siap|lgtm|approved?|laksanakan|kerjakan|eksekusi|jalankan|setuju|lanjut)\b/i.test(text)) {
+    return true;
+  }
+  return false;
+}
+
 async function handleLeaderChat() {
   const input = document.getElementById('leader-input');
   if (!input || !input.value.trim()) return;
@@ -664,6 +693,27 @@ async function handleLeaderChat() {
   appendSystemLog('info', 'leader-chat', `User sent: "${text.slice(0, 100)}"`);
   APP.leaderMessages.push({ role: 'user', content: text });
   updateLeaderChatUI();
+
+  // ── INTERCEPT 1: User approves a detected plan ─────────────────────────
+  // If we have a detected plan from parsing Leader output AND user says "go",
+  // trigger delegation via the old numbered-list mechanism (fallback).
+  // The PRIMARY mechanism is now file-based: Leader writes .synergy/tasks/ready.json
+  // and the backend task-watcher auto-spawns workers.
+  // This intercept handles the case where Leader outputs a plan in chat but
+  // hasn't written the task files yet — we tell the user to tell Leader to write them.
+  if (APP.detectedPlan && APP.detectedPlan.tasks.length > 0 && isApprovalIntent(text)) {
+    cancelAutoDelegate();
+    appendSystemLog('info', 'leader-chat',
+      `Approval intent detected. Forwarding to Leader so it writes task files.`);
+    // Don't short-circuit — let the message go to Leader so it writes the task files.
+    // The task-file watcher in the backend will pick up ready.json automatically.
+    APP.leaderMessages.push({
+      role: 'system',
+      content: `⏳ Mengirim approval ke Leader. Leader akan menulis task files, lalu Workers otomatis spawn...`
+    });
+    updateLeaderChatUI();
+    // Fall through to send the message to Leader
+  }
 
   // Check for slash commands
   const firstWord = text.split(' ')[0].toLowerCase();
@@ -689,13 +739,27 @@ async function handleLeaderChat() {
   updateLeaderChatUI();
   appendSystemLog('info', 'leader-chat', 'Sending to opencode run (headless)...');
 
+  // If this is an approval message, show extra context about what Leader is doing
+  if (isApprovalIntent(text)) {
+    // Show progress after 8 seconds if still thinking
+    setTimeout(() => {
+      if (APP.leaderBusy) {
+        const thinkingMsg = APP.leaderMessages.find(m => m.content === '⏳ Thinking...');
+        if (thinkingMsg) {
+          thinkingMsg.content = '⏳ Leader sedang menulis task files (.synergy/tasks/)... ini bisa 30-60 detik untuk model gratis.';
+          updateLeaderChatUI();
+        }
+      }
+    }, 8000);
+  }
+
   try {
     await invoke('send_to_leader', { message: text });
     appendSystemLog('ok', 'leader-chat', 'Message sent to backend successfully');
     // Response comes via leader-output event
   } catch (e) {
     appendSystemLog('error', 'leader-chat', `send_to_leader failed: ${e}`);
-    APP.leaderMessages = APP.leaderMessages.filter(m => m.content !== '⏳ Thinking...');
+    APP.leaderMessages = APP.leaderMessages.filter(m => m.content !== '⏳ Thinking...' && !m.content.includes('Leader sedang menulis'));
     APP.leaderMessages.push({ role: 'system', content: `Error: ${e}` });
     updateLeaderChatUI();
   }
@@ -707,7 +771,7 @@ function updateLeaderChatUI() {
   area.innerHTML = APP.leaderMessages.map(m => {
     if (m.role === 'user') return `<div class="chat-msg user">${escapeHtml(m.content)}</div>`;
     if (m.role === 'system') return `<div class="chat-msg system">${escapeHtml(m.content)}</div>`;
-    return `<div class="chat-msg assistant"><pre style="white-space:pre-wrap;margin:0;font-family:inherit;line-height:1.5">${escapeHtml(m.content)}</pre></div>`;
+    return `<div class="chat-msg assistant"><pre style="white-space:pre-wrap;margin:0;font-family:inherit;line-height:1.5">${formatMarkdown(m.content)}</pre></div>`;
   }).join('');
   area.scrollTop = area.scrollHeight;
 }
@@ -1245,7 +1309,7 @@ function renderWorkerCells() {
 function renderLeaderPanel() {
   const adapterName = APP.selectedAdapter ? APP.selectedAdapter.id : 'Leader';
   const adapterDesc = APP.selectedAdapter ? APP.selectedAdapter.desc : '';
-  const msgs = APP.leaderMessages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
+  const msgs = APP.leaderMessages.map(m => `<div class="chat-msg ${m.role}">${m.role === 'assistant' ? formatMarkdown(m.content) : escapeHtml(m.content)}</div>`).join('');
 
   return `
     <div class="leader-header-bar">
@@ -1319,10 +1383,13 @@ function renderWorkspace() {
 
   // 6 worker mini panels
   let workerCells = '';
+  const workersActive = (APP.workers || []).length > 0;
   for (let i = 0; i < APP.workerCount; i++) {
-    const w = APP.workers[i] || { status: 'idle', proxy_addr: '', current_task: null };
-    const statusCls = w.status || 'idle';
-    const ip = (APP.workerIps && APP.workerIps[i]) || 'detecting...';
+    const w = APP.workers[i] || { status: 'standby', proxy_addr: '', current_task: null };
+    const statusCls = workersActive ? (w.status || 'idle') : 'standby';
+    const ip = workersActive
+      ? ((APP.workerIps && APP.workerIps[i]) || 'no proxy')
+      : 'waiting for plan';
     workerCells += `
       <div class="workspace-worker-cell">
         <div class="workspace-worker-row">
@@ -1339,7 +1406,7 @@ function renderWorkspace() {
   const msgs = (APP.leaderMessages || []).map(m => {
     if (m.role === 'user') return `<div class="chat-msg user">${escapeHtml(m.content)}</div>`;
     if (m.role === 'system') return `<div class="chat-msg system">${escapeHtml(m.content)}</div>`;
-    return `<div class="chat-msg assistant"><pre style="white-space:pre-wrap;margin:0;font-family:inherit">${escapeHtml(m.content)}</pre></div>`;
+    return `<div class="chat-msg assistant"><pre style="white-space:pre-wrap;margin:0;font-family:inherit">${formatMarkdown(m.content)}</pre></div>`;
   }).join('');
 
   const status = describeLeaderStatus();
@@ -1349,16 +1416,11 @@ function renderWorkspace() {
     <div class="workspace-leader">
       <div class="workspace-leader-header">
         <span class="ws-dot"></span>
-        <span>Leader · OpenCode (plan-only)</span>
+        <span>Leader · OpenCode</span>
         <span style="font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-weight:400;text-transform:none">${escapeHtml(projectName)}</span>
         <span style="font-size:10px;color:var(--teal);font-family:'JetBrains Mono',monospace;text-transform:none">IP: ${escapeHtml(leaderIp)}</span>
         <span id="ws-status-badge" class="ws-status-badge ${status.cls}" title="${escapeHtml(status.tip)}">${status.label}</span>
         <div class="ws-spacer"></div>
-        ${APP.detectedPlan && APP.detectedPlan.tasks.length > 0 ? `
-          <button id="btn-ws-delegate" style="background:var(--green);color:var(--bg-crust);font-weight:600">
-            ▶ Delegate ${APP.detectedPlan.tasks.length} tasks to Workers
-          </button>
-        ` : ''}
         <button id="btn-ws-restart" title="Restart OpenCode session">↻ Restart</button>
       </div>
       <div class="leader-chat-area" id="leader-chat-area" style="flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:10px;background:var(--bg-overlay)">
@@ -1373,7 +1435,7 @@ function renderWorkspace() {
 
     <div class="workspace-workers">
       <div class="workspace-workers-header">
-        Workers (${APP.workerCount}) · Each via different proxy IP
+        Workers (${APP.workerCount}) · ${workersActive ? 'Active' : 'Standby — will spawn after plan approved'}
       </div>
       <div class="workspace-workers-grid">
         ${workerCells}
@@ -1393,6 +1455,11 @@ function describeLeaderStatus() {
     return { label: `🔵 Workers ${workersBusy}/${workersTotal}`, cls: 'busy', tip: 'Workers are executing tasks' };
   }
   if (busy) {
+    // Show elapsed time if thinking for more than 5 seconds
+    const elapsed = APP.leaderBusySince ? Math.floor((Date.now() - APP.leaderBusySince) / 1000) : 0;
+    if (elapsed > 5) {
+      return { label: `🟡 Leader working... (${elapsed}s)`, cls: 'busy', tip: 'Leader is generating a response or writing files' };
+    }
     return { label: '🟡 Leader thinking...', cls: 'busy', tip: 'Leader is generating a response' };
   }
   if (turns === 0) {
@@ -1410,6 +1477,14 @@ function updateStatusBadge() {
   badge.textContent = s.label;
   badge.className = 'ws-status-badge ' + s.cls;
   badge.title = s.tip;
+
+  // Start/stop the 1s ticker for elapsed time display
+  if (APP.leaderBusy && !APP._badgeTickInterval) {
+    APP._badgeTickInterval = setInterval(updateStatusBadge, 1000);
+  } else if (!APP.leaderBusy && APP._badgeTickInterval) {
+    clearInterval(APP._badgeTickInterval);
+    APP._badgeTickInterval = null;
+  }
 }
 
 // Render the Changelog panel below the worker grid.
@@ -1463,7 +1538,7 @@ function startAutoDelegateCountdown() {
   const planKey = APP.detectedPlan.tasks.map(t => t.num + ':' + t.desc.slice(0, 20)).join('|');
   if (APP.lastDelegatedPlanKey === planKey) return;
 
-  APP.autoDelegateRemaining = 5;
+  APP.autoDelegateRemaining = 10;
   const bar = document.getElementById('auto-delegate-bar');
   if (!bar) return;
 
@@ -1471,7 +1546,7 @@ function startAutoDelegateCountdown() {
     bar.style.display = 'flex';
     bar.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 14px;background:rgba(166,227,161,0.12);border-top:1px solid var(--green);font-size:12px;color:var(--text)';
     bar.innerHTML = `
-      <span>⏱ Auto-delegate dalam <b id="auto-delegate-secs">${APP.autoDelegateRemaining}</b>s...</span>
+      <span>⏱ Auto-delegate ke Workers paralel dalam <b id="auto-delegate-secs">${APP.autoDelegateRemaining}</b>s. Ketik "laksanakan" untuk eksekusi sekarang.</span>
       <span style="flex:1"></span>
       <button id="btn-auto-delegate-now" style="background:var(--green);color:var(--bg-crust);border:none;border-radius:4px;padding:4px 10px;font-weight:600;cursor:pointer">Delegate now</button>
       <button id="btn-auto-delegate-cancel" style="background:var(--border);color:var(--text);border:none;border-radius:4px;padding:4px 10px;cursor:pointer">Cancel</button>
@@ -1517,63 +1592,12 @@ function shortenProxy(addr) {
 }
 
 // --- Leader plan detection ---
+// DISABLED: File-based delegation is now the primary mechanism.
+// Leader writes .synergy/tasks/ready.json to trigger workers.
+// The numbered list in chat is just for user presentation.
 function detectLeaderPlan() {
-  if (!APP.leaderRawBuffer) return;
-  // Look at last 10KB for numbered task list
-  const tail = APP.leaderRawBuffer.slice(-10000);
-  const lines = tail.split('\n');
-
-  const tasks = [];
-  for (const line of lines) {
-    // Match: "1. Description — Files: path1.ext, path2.ext (depends on task N)"
-    const m = line.match(/^\s*(\d+)[.)]\s+(.+?)(?:\s*[—-]\s*Files?:\s*([^()]+?))?(?:\s*\(depends?\s+on\s+(?:task\s+)?(\d+(?:\s*,\s*\d+)*)\))?\s*$/i);
-    if (!m) continue;
-    const num = parseInt(m[1], 10);
-    const desc = m[2].trim();
-    const files = m[3] ? m[3].split(',').map(f => f.trim()).filter(Boolean) : [];
-    const deps = m[4] ? m[4].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)) : [];
-
-    // Skip lines that look like list-of-something but not actual tasks
-    if (desc.length < 10) continue;
-
-    tasks.push({ num, desc, files, deps });
-  }
-
-  if (tasks.length < 2) {
-    return;
-  }
-
-  // De-dupe by ordinal
-  const unique = new Map();
-  tasks.forEach(t => unique.set(t.num, t));
-  const finalTasks = Array.from(unique.values()).sort((a, b) => a.num - b.num);
-
-  // Only update if changed
-  const newPlan = { tasks: finalTasks, raw: tail };
-  if (!APP.detectedPlan || APP.detectedPlan.tasks.length !== finalTasks.length) {
-    APP.detectedPlan = newPlan;
-    appendSystemLog('info', 'plan-detect', `Detected plan with ${finalTasks.length} tasks!`);
-    finalTasks.forEach(t => appendSystemLog('debug', 'plan-detect', `  Task ${t.num}: ${t.desc.slice(0, 80)}`));
-    // Update header without full re-render to avoid disturbing xterm
-    const header = document.querySelector('.workspace-leader-header');
-    if (header) {
-      let btn = document.getElementById('btn-ws-delegate');
-      if (!btn) {
-        btn = document.createElement('button');
-        btn.id = 'btn-ws-delegate';
-        btn.style.cssText = 'background:var(--green);color:var(--bg-crust);font-weight:600';
-        btn.title = 'Delegate detected tasks to parallel Workers';
-        const restart = document.getElementById('btn-ws-restart');
-        if (restart) header.insertBefore(btn, restart);
-        else header.appendChild(btn);
-        btn.addEventListener('click', delegateTasksToWorkers);
-      }
-      btn.textContent = `▶ Delegate ${finalTasks.length} tasks to Workers`;
-    }
-
-    // Kick off the 5s auto-delegate countdown (user can cancel).
-    startAutoDelegateCountdown();
-  }
+  // No-op. File watcher in backend handles delegation.
+  return;
 }
 
 async function delegateTasksToWorkers() {
@@ -1625,42 +1649,57 @@ async function delegateTasksToWorkers() {
 }
 
 async function fetchAllIps() {
-  // Leader IP
-  try {
-    const info = await invoke('get_leader_info', {});
-    APP.leaderProxy = info.proxy_addr || null;
-    const leaderIp = await invoke('get_public_ip', { proxyAddr: info.proxy_addr || null });
-    APP.leaderIp = leaderIp;
-    // Update header IP without full re-render
-    const headerIp = document.querySelector('.workspace-leader-header span[title*="IP via proxy"]');
-    if (headerIp) headerIp.textContent = 'IP: ' + leaderIp;
-  } catch (e) {
-    APP.leaderIp = 'unavailable';
-  }
-
-  // Workers IPs
-  try {
-    const workers = await invoke('get_workers_proxy_info', {});
-    APP.workerIps = APP.workerIps || [];
-    // Fetch in parallel
-    const promises = workers.map(async (w, idx) => {
-      try {
-        const ip = await invoke('get_public_ip', { proxyAddr: w.proxy_addr || null });
-        APP.workerIps[idx] = ip;
-        // Live update the worker proxy span
-        const cells = document.querySelectorAll('.workspace-worker-cell');
-        if (cells[idx]) {
-          const proxyEl = cells[idx].querySelector('.w-proxy');
-          if (proxyEl) proxyEl.textContent = ip;
-        }
-      } catch (e) {
-        APP.workerIps[idx] = 'no-proxy';
+  // Leader IP — non-blocking, update UI when ready
+  (async () => {
+    try {
+      const info = await invoke('get_leader_info', {});
+      APP.leaderProxy = info.proxy_addr || null;
+      if (!info.proxy_addr) {
+        // No proxy configured — show "direct" instead of trying to fetch
+        APP.leaderIp = 'direct (no proxy)';
+      } else {
+        const leaderIp = await invoke('get_public_ip', { proxyAddr: info.proxy_addr });
+        APP.leaderIp = leaderIp;
       }
-    });
-    await Promise.all(promises);
-  } catch (e) {
-    console.warn('Could not fetch worker IPs:', e);
-  }
+    } catch (e) {
+      APP.leaderIp = 'unavailable';
+    }
+    // Update header IP without full re-render
+    const headerIp = document.querySelector('.workspace-leader-header span[title*="IP"]');
+    if (headerIp) headerIp.textContent = 'IP: ' + (APP.leaderIp || 'unavailable');
+    // Also try the teal-colored span
+    const tealSpan = document.querySelector('.workspace-leader-header span[style*="teal"]');
+    if (tealSpan) tealSpan.textContent = 'IP: ' + (APP.leaderIp || 'unavailable');
+  })();
+
+  // Workers IPs — non-blocking, fire and forget
+  (async () => {
+    try {
+      const workers = await invoke('get_workers_proxy_info', {});
+      APP.workerIps = APP.workerIps || [];
+      const promises = workers.map(async (w, idx) => {
+        try {
+          if (!w.proxy_addr) {
+            APP.workerIps[idx] = 'direct';
+          } else {
+            const ip = await invoke('get_public_ip', { proxyAddr: w.proxy_addr });
+            APP.workerIps[idx] = ip;
+          }
+          // Live update the worker proxy span
+          const cells = document.querySelectorAll('.workspace-worker-cell');
+          if (cells[idx]) {
+            const proxyEl = cells[idx].querySelector('.w-proxy');
+            if (proxyEl) proxyEl.textContent = APP.workerIps[idx];
+          }
+        } catch (e) {
+          APP.workerIps[idx] = 'no-proxy';
+        }
+      });
+      await Promise.all(promises);
+    } catch (e) {
+      console.warn('Could not fetch worker IPs:', e);
+    }
+  })();
 }
 
 function renderComplete() {
@@ -1806,7 +1845,7 @@ function attachEvents() {
   document.getElementById('model-selector-overlay')?.addEventListener('click', (e) => {
     if (e.target.id === 'model-selector-overlay') { APP.showModelSelector = false; render(); }
   });
-  document.getElementById('btn-model-refresh')?.addEventListener('click', openModelSelector);
+  document.getElementById('btn-model-refresh')?.addEventListener('click', () => openModelSelector(APP.modelSelectorTarget));
   document.querySelectorAll('.model-option:not(.disabled)').forEach(el => {
     el.addEventListener('click', () => selectModel(el.dataset.modelId));
   });
@@ -1882,7 +1921,7 @@ async function loadAdaptersAndGo() {
   APP.connectionStatus = 'connecting';
 
   try {
-    const sid = await invoke('choose_leader', { adapterId: 'opencode', projectDir: APP.projectDir });
+    const sid = await invoke('choose_leader', { adapterId: 'opencode', projectDir: APP.projectDir, agent: APP.leaderAgent, model: APP.leaderModel });
     if (typeof sid === 'string') APP.sessionId = sid;
     APP.connectionStatus = 'connected';
     appendLoadingLog('ok', '✓ OpenCode connected (session: ' + (APP.sessionId || 'n/a') + ')');
@@ -1914,7 +1953,7 @@ async function handleAdapterSelect(adapterId) {
   render();
 
   try {
-    const result = await invoke('choose_leader', { adapterId: adapterId, projectDir: APP.projectDir });
+    const result = await invoke('choose_leader', { adapterId: adapterId, projectDir: APP.projectDir, agent: APP.leaderAgent, model: APP.leaderModel });
     // Backend returns session_id string directly
     if (typeof result === 'string') APP.sessionId = result;
     // If no event came from backend, set connected
@@ -1974,7 +2013,7 @@ function updatePlanningChat() {
     const cls = m.role === 'user' ? 'chat-msg user'
               : m.role === 'system' ? 'chat-msg system'
               : 'chat-msg assistant';
-    const content = m.typing ? '<span style="opacity:.6">▌ thinking...</span>' : escapeHtml(m.content);
+    const content = m.typing ? '<span style="opacity:.6">▌ thinking...</span>' : (m.role === 'assistant' ? formatMarkdown(m.content) : escapeHtml(m.content));
     return `<div class="${cls}">${content}</div>`;
   }).join('');
   chat.scrollTop = chat.scrollHeight;
@@ -2047,6 +2086,10 @@ function handleNewSession() {
   APP.workers = [];
   APP.logs = [];
   APP.leaderMessages = [];
+  APP.leaderRawBuffer = '';
+  APP.detectedPlan = null;
+  APP.lastDelegatedPlanKey = null;
+  cancelAutoDelegate();
   APP.startTime = null;
   APP.showTerminal = false;
   APP.showProviderList = false;
@@ -2072,6 +2115,38 @@ async function handleLeaderSend() {
     APP.planText = text;
     APP.planTasks = numbered.map(m => m[2]);
     render();
+    return;
+  }
+
+  // Handle custom slash commands
+  if (text.startsWith('/agent ')) {
+    const newAgent = text.split(' ')[1];
+    APP.leaderAgent = newAgent;
+    APP.leaderMessages.push({ role: 'system', content: `Agent mode set to ${newAgent}. Restarting session...` });
+    updateLeaderChatUI();
+    try {
+      await invoke('restart_leader', { agent: APP.leaderAgent, model: APP.leaderModel });
+    } catch(e) {
+      APP.leaderMessages.push({ role: 'system', content: `Failed to restart: ${e}` });
+      updateLeaderChatUI();
+    }
+    return;
+  }
+  
+  if (text.startsWith('/models ')) {
+    const newModel = text.split(' ')[1];
+    APP.leaderModel = newModel;
+    APP.leaderMessages.push({ role: 'system', content: `Leader model set to ${newModel}. Restarting session...` });
+    updateLeaderChatUI();
+    try {
+      await invoke('restart_leader', { agent: APP.leaderAgent, model: APP.leaderModel });
+    } catch(e) {
+      APP.leaderMessages.push({ role: 'system', content: `Failed to restart: ${e}` });
+      updateLeaderChatUI();
+    }
+    return;
+  } else if (text === '/models') {
+    openModelSelector('leader');
     return;
   }
 
@@ -2373,10 +2448,12 @@ async function subscribeEvents() {
     // Marker-only chunks: update status without touching chat
     if (raw.includes(BUSY)) {
       APP.leaderBusy = true;
+      APP.leaderBusySince = Date.now();
       updateStatusBadge();
     }
     if (raw.includes(IDLE)) {
       APP.leaderBusy = false;
+      APP.leaderBusySince = null;
       APP.leaderTurnCount = (APP.leaderTurnCount || 0) + 1;
       updateStatusBadge();
       // After Leader settles, refresh changelog if we're past the briefing.
@@ -2396,7 +2473,9 @@ async function subscribeEvents() {
       appendSystemLog('debug', 'leader-output', `Received ${text.length} chars: "${text.slice(0, 80)}..."`);
 
       // Remove "thinking" indicator
-      APP.leaderMessages = APP.leaderMessages.filter(m => m.content !== '⏳ Thinking...');
+      APP.leaderMessages = APP.leaderMessages.filter(m => 
+        m.content !== '⏳ Thinking...' && !m.content.includes('Leader sedang menulis')
+      );
 
       // Detect new turn marker
       if (text.includes(NEW_TURN)) {
@@ -2438,12 +2517,27 @@ async function subscribeEvents() {
 
   await listen('session-state-changed', ev => {
     const p = ev.payload || ev;
-    if (p.phase === 'reviewing') {
-      APP.leaderMessages.push({ role: 'system', content: 'All tasks complete. Leader is reviewing the results...' });
+    if (p.phase === 'executing') {
+      // Task-file watcher triggered! Workers are being spawned.
+      const totalTasks = p.total_tasks || '?';
+      const workers = p.workers || '?';
+      APP.leaderMessages.push({
+        role: 'system',
+        content: `🚀 Task files detected! Spawning ${workers} Workers for ${totalTasks} tasks. Orchestrator running...`
+      });
+      updateLeaderChatUI();
+      appendSystemLog('info', 'session', `Task-watcher triggered: ${totalTasks} tasks, ${workers} workers`);
+      // Start polling for worker status
+      startPolling();
+    } else if (p.phase === 'reviewing') {
+      APP.leaderMessages.push({ role: 'system', content: '✅ All tasks complete. Leader is reviewing the results...' });
       if (APP.screen === 'executing') updateLeaderChat();
+      updateLeaderChatUI();
     } else if (p.phase === 'complete') {
       if (APP.pollInterval) { clearInterval(APP.pollInterval); APP.pollInterval = null; }
-      setTimeout(() => goTo('complete'), 1000);
+      APP.leaderMessages.push({ role: 'system', content: '🎉 Session complete! All workers finished.' });
+      updateLeaderChatUI();
+      appendSystemLog('info', 'session', 'Session complete, workers finished tasks.');
     }
   });
 }
@@ -2495,7 +2589,7 @@ function startPolling() {
       if (state.workers) APP.workers = state.workers;
       updateProgressPanel();
       updateWorkerHeaders();
-      checkComplete();
+      // checkComplete(); // Redirect disabled
     } catch (e) {}
   }, 1000);
 }
@@ -2503,7 +2597,7 @@ function startPolling() {
 function checkComplete() {
   if (APP.execTasks.length > 0 && APP.execTasks.every(t => t.status === 'done' || t.status === 'error')) {
     if (APP.pollInterval) { clearInterval(APP.pollInterval); APP.pollInterval = null; }
-    setTimeout(() => goTo('complete'), 1500);
+    // setTimeout(() => goTo('complete'), 1500); // Disabled as per user request
   }
 }
 
@@ -2538,7 +2632,7 @@ function updateWorkerHeaders() {
 function updateLeaderChat() {
   const area = document.getElementById('leader-chat-area');
   if (!area) return;
-  area.innerHTML = APP.leaderMessages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
+  area.innerHTML = APP.leaderMessages.map(m => `<div class="chat-msg ${m.role}">${m.role === 'assistant' ? formatMarkdown(m.content) : escapeHtml(m.content)}</div>`).join('');
   area.scrollTop = area.scrollHeight;
 }
 
@@ -2547,6 +2641,24 @@ function escapeHtml(text) {
   const div = document.createElement('div');
   div.textContent = text;
   return div.innerHTML;
+}
+
+function formatMarkdown(text) {
+  let html = escapeHtml(text);
+  
+  // Handle closed thought tags
+  html = html.replace(/&lt;thought&gt;([\s\S]*?)&lt;\/thought&gt;/g, '<details style="margin:8px 0;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text-dim);font-weight:600;user-select:none;outline:none">🤔 Thought Process</summary><div style="margin-top:8px;font-size:12px;color:var(--text-dim);white-space:pre-wrap;font-family:\'JetBrains Mono\',monospace">$1</div></details>');
+  
+  // Handle open/streaming thought tags
+  if (html.includes('&lt;thought&gt;')) {
+    html = html.replace(/&lt;thought&gt;([\s\S]*)$/, '<details open style="margin:8px 0;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:8px"><summary style="cursor:pointer;font-size:12px;color:var(--text-dim);font-weight:600;user-select:none;outline:none">🟡 Thinking...</summary><div style="margin-top:8px;font-size:12px;color:var(--text-dim);white-space:pre-wrap;font-family:\'JetBrains Mono\',monospace">$1</div></details>');
+  }
+
+  html = html.replace(/```([\s\S]*?)```/g, '<code style="display:block;background:rgba(0,0,0,.3);padding:8px 10px;border-radius:6px;margin:4px 0;font-family:\'JetBrains Mono\',monospace;font-size:12px;overflow-x:auto">$1</code>');
+  html = html.replace(/`([^`]+?)`/g, '<code style="background:rgba(0,0,0,.25);padding:1px 5px;border-radius:3px;font-family:\'JetBrains Mono\',monospace;font-size:12px">$1</code>');
+  html = html.replace(/\*\*([\s\S]+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(?<!\*)\*([^*\n]+?)\*(?!\*)/g, '<em>$1</em>');
+  return html;
 }
 
 function formatElapsed(ms) {
@@ -2626,11 +2738,14 @@ function renderModelSelector() {
   if (!APP.showModelSelector) return '';
 
   let content;
+  const currentModel = APP.modelSelectorTarget === 'leader' ? APP.leaderModel : APP.workerModel;
+  const title = APP.modelSelectorTarget === 'leader' ? 'Select Leader Model' : 'Select Worker Model';
+  
   if (APP.modelLoading) {
     content = `<div class="model-loading"><div class="model-loading-spinner"></div><span>Querying OpenCode for available models...</span></div>`;
   } else {
     const items = APP.availableModels.map(m => `
-      <div class="model-option${m.id === APP.workerModel ? ' selected' : ''}${!m.free ? ' disabled' : ''}" data-model-id="${m.id}">
+      <div class="model-option${m.id === currentModel ? ' selected' : ''}${!m.free ? ' disabled' : ''}" data-model-id="${m.id}">
         <div class="model-option-header">
           <span class="model-option-name">${escapeHtml(m.name)}</span>
           <span class="model-option-provider">${escapeHtml(m.provider)}</span>
@@ -2645,29 +2760,30 @@ function renderModelSelector() {
   return `<div class="settings-overlay" id="model-selector-overlay">
     <div class="model-selector-modal">
       <div class="settings-header">
-        <span class="settings-title">Select Worker Model</span>
-        <span style="font-size:10px;color:var(--text-dim);margin-left:8px">Models queried from OpenCode (/model)</span>
+        <span class="settings-title">${title}</span>
+        <span style="font-size:10px;color:var(--text-dim);margin-left:8px">Models queried from OpenCode (/models)</span>
         <button class="settings-close" id="btn-model-close">&times;</button>
       </div>
       <div class="model-selector-body">
         ${content}
       </div>
       <div class="model-selector-footer">
-        <span class="model-current">Current: <strong>${APP.workerModel || 'none'}</strong></span>
+        <span class="model-current">Current: <strong>${currentModel || 'none'}</strong></span>
         <button class="btn-secondary" id="btn-model-refresh">Refresh List</button>
       </div>
     </div>
   </div>`;
 }
 
-async function openModelSelector() {
+async function openModelSelector(target = 'worker') {
+  APP.modelSelectorTarget = target;
   APP.showModelSelector = true;
   APP.modelLoading = true;
   APP.availableModels = [];
   render();
 
   try {
-    const models = await invoke('get_available_models');
+    const models = target === 'leader' ? await invoke('fetch_leader_models') : await invoke('get_available_models');
     APP.availableModels = models;
     APP.modelLoading = false;
   } catch(e) {
@@ -2680,12 +2796,25 @@ async function openModelSelector() {
 
 async function selectModel(modelId) {
   if (!modelId) return;
-  APP.workerModel = modelId;
   APP.showModelSelector = false;
-  try {
-    await invoke('set_worker_model_cmd', { model: modelId });
-  } catch(e) {
-    showError('Failed to set model: ' + e);
+  
+  if (APP.modelSelectorTarget === 'leader') {
+    APP.leaderModel = modelId;
+    APP.leaderMessages.push({ role: 'system', content: `Leader model set to ${modelId}. Restarting session...` });
+    updateLeaderChatUI();
+    try {
+      await invoke('restart_leader', { agent: APP.leaderAgent, model: APP.leaderModel });
+    } catch(e) {
+      APP.leaderMessages.push({ role: 'system', content: `Failed to restart: ${e}` });
+      updateLeaderChatUI();
+    }
+  } else {
+    APP.workerModel = modelId;
+    try {
+      await invoke('set_worker_model_cmd', { model: modelId });
+    } catch(e) {
+      showError('Failed to set model: ' + e);
+    }
   }
   render();
 }

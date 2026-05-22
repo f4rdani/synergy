@@ -15,8 +15,8 @@ pub use cli_codex::CodexAdapter;
 pub use cli_generic::GenericCliAdapter;
 pub use cli_opencode::OpenCodeAdapter;
 pub use cli_opencode_run::{
-    find_opencode_binary, handle_is_running, OpenCodeRunAdapter, BUSY_MARKER, IDLE_MARKER,
-    NEW_TURN_MARKER,
+    ensure_warp_installed, find_opencode_binary, handle_is_running, OpenCodeRunAdapter,
+    BUSY_MARKER, IDLE_MARKER, NEW_TURN_MARKER,
 };
 pub use gui_cursor::CursorAdapter;
 pub use gui_kiro::KiroAdapter;
