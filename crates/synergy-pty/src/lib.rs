@@ -94,4 +94,16 @@ impl PtySession {
     pub fn try_read(&mut self) -> Option<String> {
         self.rx.try_recv().ok()
     }
+
+    /// Resize the PTY (cols/rows). Must be called when the UI terminal resizes
+    /// so the child process can re-render properly.
+    pub fn resize(&self, rows: u16, cols: u16) -> Result<()> {
+        self._master.resize(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+        Ok(())
+    }
 }

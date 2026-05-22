@@ -59,6 +59,19 @@ impl AppAdapter for OpenCodeAdapter {
             envs.push(("ALL_PROXY".to_string(), proxy.clone()));
         }
 
+        // Isolate OpenCode config from user's personal config.
+        // This ensures Synergy's OpenCode uses only free models and doesn't
+        // accidentally use the user's paid API keys.
+        if let Some(ref cwd) = config.cwd {
+            let isolated_home = format!("{}/.synergy/opencode-home", cwd);
+            std::fs::create_dir_all(&isolated_home).ok();
+            envs.push(("OPENCODE_HOME".to_string(), isolated_home.clone()));
+            envs.push(("XDG_CONFIG_HOME".to_string(), isolated_home.clone()));
+        }
+
+        // Disable color output issues with ConPTY
+        envs.push(("FORCE_COLOR".to_string(), "1".to_string()));
+
         let pty = PtySession::spawn_with_env(
             &config.bin_path,
             &args_ref,
@@ -74,8 +87,16 @@ impl AppAdapter for OpenCodeAdapter {
 
     async fn send_command(&self, handle: &mut AppHandle, text: &str) -> Result<()> {
         if let Some(ref mut pty) = handle.pty_session {
-            // Use \r — works for both Windows ConPTY and Unix PTYs.
             pty.write(&(text.to_owned() + "\r"))?;
+            Ok(())
+        } else {
+            Err(anyhow!("No PTY session active"))
+        }
+    }
+
+    async fn send_raw(&self, handle: &mut AppHandle, data: &str) -> Result<()> {
+        if let Some(ref mut pty) = handle.pty_session {
+            pty.write(data)?;
             Ok(())
         } else {
             Err(anyhow!("No PTY session active"))

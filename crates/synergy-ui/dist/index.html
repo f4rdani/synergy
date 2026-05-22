@@ -3,7 +3,10 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>Synergy</title>
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+<meta http-equiv="Pragma" content="no-cache"/>
+<meta http-equiv="Expires" content="0"/>
+<title>Synergy v0.7.0 — Chat Mode</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css"/>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <style>
@@ -338,6 +341,61 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Inter'
 .model-selector-footer{padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
 .model-current{font-size:11px;color:var(--text-sub)}
 .model-current strong{color:var(--teal)}
+/* Workspace - OpenCode TUI Leader + Worker mini terminals */
+.workspace-screen{flex-direction:row;background:var(--bg-overlay)}
+.workspace-leader{flex:1;min-width:0;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+.workspace-leader-header{height:34px;display:flex;align-items:center;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px;gap:8px}
+.workspace-leader-header .ws-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 4px var(--green)}
+.workspace-leader-header .ws-spacer{flex:1}
+.workspace-leader-header button{background:var(--surface0);border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--text-sub);font-size:11px;cursor:pointer}
+.workspace-leader-header button:hover{border-color:var(--accent);color:var(--accent)}
+.workspace-leader-term{flex:1;min-height:0;background:#0a0a14;padding:0;overflow:hidden}
+
+.workspace-workers{width:380px;min-width:320px;display:flex;flex-direction:column;background:var(--bg-surface)}
+.workspace-workers-header{height:34px;display:flex;align-items:center;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px}
+.workspace-workers-grid{flex:1;display:flex;flex-direction:column;gap:1px;background:var(--border);overflow-y:auto}
+.workspace-worker-cell{display:flex;flex-direction:column;background:var(--bg);min-height:130px}
+.workspace-worker-row{display:flex;align-items:center;gap:6px;padding:4px 8px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:10px}
+.workspace-worker-row .w-num{font-weight:600;color:var(--accent);min-width:28px}
+.workspace-worker-row .w-status{padding:1px 5px;border-radius:3px;font-size:9px;font-weight:600;text-transform:uppercase}
+.workspace-worker-row .w-status.idle{background:rgba(88,91,112,.2);color:var(--text-dim)}
+.workspace-worker-row .w-status.working{background:rgba(137,180,250,.15);color:var(--accent)}
+.workspace-worker-row .w-status.done{background:rgba(166,227,161,.15);color:var(--green)}
+.workspace-worker-row .w-proxy{margin-left:auto;color:var(--teal);font-family:'JetBrains Mono',monospace;font-size:9px}
+.workspace-worker-term{flex:1;min-height:0;background:#0a0a14;padding:2px;overflow:hidden}
+/* Loading screen */
+.loading-screen, .startup-screen{align-items:center;justify-content:center;flex-direction:column;gap:24px;background:var(--bg)}
+.loading-logo{font-size:48px;font-weight:700;background:linear-gradient(135deg,var(--accent),var(--mauve),var(--teal));-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:-2px}
+.loading-spinner{width:48px;height:48px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.9s linear infinite}
+.loading-status{font-size:14px;color:var(--text);font-weight:500}
+.loading-detail{font-size:12px;color:var(--text-sub);font-family:'JetBrains Mono',monospace;max-width:600px;text-align:center;line-height:1.6}
+.loading-progress{width:280px;height:4px;background:var(--surface0);border-radius:2px;overflow:hidden;margin-top:8px}
+.loading-progress-bar{height:100%;background:linear-gradient(90deg,var(--accent),var(--mauve));border-radius:2px;animation:loadingPulse 1.4s ease-in-out infinite}
+@keyframes loadingPulse{0%{width:0%}50%{width:80%}100%{width:100%}}
+.loading-log{margin-top:12px;width:520px;max-height:160px;overflow-y:auto;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-sub);line-height:1.5}
+.loading-log .log-line{padding:1px 0}
+.loading-log .log-info{color:var(--accent)}
+.loading-log .log-ok{color:var(--green)}
+.loading-log .log-warn{color:var(--yellow)}
+.loading-log .log-err{color:var(--red)}
+/* Log panel (workspace footer) */
+.log-panel{position:fixed;left:0;right:0;bottom:26px;background:var(--bg-overlay);border-top:1px solid var(--border);max-height:240px;display:flex;flex-direction:column;transition:transform .2s;z-index:50}
+.log-panel.collapsed{transform:translateY(calc(100% - 28px))}
+.log-panel-header{height:28px;display:flex;align-items:center;padding:0 12px;background:var(--bg-surface);border-bottom:1px solid var(--border);font-size:10px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px;cursor:pointer;user-select:none;gap:8px}
+.log-panel-header .log-spacer{flex:1}
+.log-panel-header .log-count{background:var(--surface0);color:var(--accent);padding:1px 6px;border-radius:3px;font-size:9px}
+.log-panel-header .log-toggle{font-size:14px;color:var(--text-dim)}
+.log-panel-body{flex:1;overflow-y:auto;padding:6px 12px;font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.5}
+.log-line{display:flex;gap:6px;padding:1px 0;border-bottom:1px dotted rgba(255,255,255,0.02)}
+.log-ts{color:var(--text-dim);min-width:90px;flex-shrink:0}
+.log-level{min-width:55px;flex-shrink:0;font-weight:600}
+.log-level-info{color:var(--accent)}
+.log-level-debug{color:var(--text-dim)}
+.log-level-warn{color:var(--yellow)}
+.log-level-error{color:var(--red)}
+.log-level-ok{color:var(--green)}
+.log-source{min-width:140px;flex-shrink:0;color:var(--mauve);font-weight:500}
+.log-msg{color:var(--text);word-break:break-word;flex:1}
 </style>
 </head>
 <body>
@@ -469,11 +527,154 @@ function showError(msg) {
 function goTo(screen) {
   APP.screen = screen;
   render();
-  if (screen === 'executing') {
-    initExecutingScreen();
-  } else if (screen === 'planning') {
-    requestAnimationFrame(() => initLeaderTerminal());
+  if (screen === 'workspace') {
+    requestAnimationFrame(() => {
+      initWorkspaceTerminals();
+      fetchAllIps();
+    });
   }
+}
+
+function initWorkspaceTerminals() {
+  // Init worker mini terminals only (Leader is now chat-based, no xterm)
+  for (let i = 0; i < APP.workerCount; i++) {
+    const host = document.getElementById('worker-mini-' + i);
+    if (!host || APP.terminals.has(i)) continue;
+    const term = new Terminal({
+      fontFamily: '"JetBrains Mono", monospace',
+      fontSize: 9,
+      lineHeight: 1.15,
+      convertEol: true,
+      scrollback: 1500,
+      theme: { background: '#0a0a14', foreground: '#a6adc8', cursor: '#89b4fa' }
+    });
+    const fit = new FitAddon.FitAddon();
+    term.loadAddon(fit);
+    term.open(host);
+    setTimeout(() => { try { fit.fit(); } catch (e) {} }, 100);
+    APP.terminals.set(i, { term, fit });
+    new ResizeObserver(() => { try { fit.fit(); } catch (e) {} }).observe(host);
+    term.writeln(`\x1b[2m# Worker ${i + 1} idle\x1b[0m`);
+  }
+
+  // Wire up Leader chat input
+  const input = document.getElementById('leader-input');
+  const sendBtn = document.getElementById('btn-leader-send');
+  if (input) {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleLeaderChat(); }
+    });
+  }
+  if (sendBtn) sendBtn.addEventListener('click', handleLeaderChat);
+
+  // Wire up Delegate button
+  document.getElementById('btn-ws-delegate')?.addEventListener('click', delegateTasksToWorkers);
+
+  // Wire up Restart button
+  document.getElementById('btn-ws-restart')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-ws-restart');
+    if (btn) { btn.disabled = true; btn.textContent = 'Restarting...'; }
+    try {
+      await invoke('restart_leader', {});
+      APP.leaderMessages = [{ role: 'system', content: 'OpenCode restarted. Ready for new messages.' }];
+      updateLeaderChatUI();
+    } catch (e) {
+      showError('Restart failed: ' + e);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Restart'; }
+    }
+  });
+
+  // Start polling for worker state
+  if (!APP.pollInterval) {
+    APP.pollInterval = setInterval(async () => {
+      if (APP.screen !== 'workspace' || !APP.sessionId) return;
+      try {
+        const state = await invoke('get_state', { sessionId: APP.sessionId });
+        if (state.workers) {
+          APP.workers = state.workers;
+          state.workers.forEach((w, idx) => {
+            const cell = document.querySelectorAll('.workspace-worker-cell')[idx];
+            if (cell) {
+              const statusEl = cell.querySelector('.w-status');
+              if (statusEl) {
+                statusEl.className = 'w-status ' + w.status;
+                statusEl.textContent = w.status;
+              }
+            }
+          });
+        }
+      } catch (e) {}
+    }, 1500);
+  }
+}
+
+// --- Leader Chat (headless run mode) ---
+const SLASH_COMMANDS = {
+  '/model': { args: ['models'], desc: 'List available models' },
+  '/help': { args: ['--help'], desc: 'Show OpenCode help' },
+  '/version': { args: ['--version'], desc: 'Show version' },
+  '/stats': { args: ['stats'], desc: 'Show token usage stats' },
+  '/session': { args: ['session', 'list'], desc: 'List sessions' },
+  '/providers': { args: ['providers'], desc: 'List providers' },
+  '/agents': { args: ['agent', 'list'], desc: 'List agents' },
+};
+
+async function handleLeaderChat() {
+  const input = document.getElementById('leader-input');
+  if (!input || !input.value.trim()) return;
+  const text = input.value.trim();
+  input.value = '';
+
+  appendSystemLog('info', 'leader-chat', `User sent: "${text.slice(0, 100)}"`);
+  APP.leaderMessages.push({ role: 'user', content: text });
+  updateLeaderChatUI();
+
+  // Check for slash commands
+  const firstWord = text.split(' ')[0].toLowerCase();
+  if (SLASH_COMMANDS[firstWord]) {
+    const cmd = SLASH_COMMANDS[firstWord];
+    appendSystemLog('info', 'slash-cmd', `Running: opencode ${cmd.args.join(' ')}`);
+    APP.leaderMessages.push({ role: 'system', content: `Running: opencode ${cmd.args.join(' ')}...` });
+    updateLeaderChatUI();
+    try {
+      const result = await invoke('run_opencode_command', { args: cmd.args });
+      appendSystemLog('ok', 'slash-cmd', `Result: ${result.slice(0, 200)}`);
+      APP.leaderMessages.push({ role: 'assistant', content: result || '(no output)' });
+    } catch (e) {
+      appendSystemLog('error', 'slash-cmd', `Error: ${e}`);
+      APP.leaderMessages.push({ role: 'system', content: `Error: ${e}` });
+    }
+    updateLeaderChatUI();
+    return;
+  }
+
+  // Regular message → send to Leader via opencode run
+  APP.leaderMessages.push({ role: 'system', content: '⏳ Thinking...' });
+  updateLeaderChatUI();
+  appendSystemLog('info', 'leader-chat', 'Sending to opencode run (headless)...');
+
+  try {
+    await invoke('send_to_leader', { message: text });
+    appendSystemLog('ok', 'leader-chat', 'Message sent to backend successfully');
+    // Response comes via leader-output event
+  } catch (e) {
+    appendSystemLog('error', 'leader-chat', `send_to_leader failed: ${e}`);
+    APP.leaderMessages = APP.leaderMessages.filter(m => m.content !== '⏳ Thinking...');
+    APP.leaderMessages.push({ role: 'system', content: `Error: ${e}` });
+    updateLeaderChatUI();
+  }
+}
+
+function updateLeaderChatUI() {
+  const area = document.getElementById('leader-chat-area');
+  if (!area) return;
+  area.innerHTML = APP.leaderMessages.map(m => {
+    if (m.role === 'user') return `<div class="chat-msg user">${escapeHtml(m.content)}</div>`;
+    if (m.role === 'system') return `<div class="chat-msg system">${escapeHtml(m.content)}</div>`;
+    return `<div class="chat-msg assistant"><pre style="white-space:pre-wrap;margin:0;font-family:inherit;line-height:1.5">${escapeHtml(m.content)}</pre></div>`;
+  }).join('');
+  area.scrollTop = area.scrollHeight;
 }
 
 // --- Main Render ---
@@ -481,21 +682,14 @@ function render() {
   const app = document.getElementById('app');
   // Save terminal reference before innerHTML clears DOM
   const prevLeaderTerm = APP.leaderTerm;
-  app.innerHTML = renderMenubar() + renderScreens() + renderBottomPanel() + renderStatusbar() + renderSettingsModal() + renderModelSelector();
+  app.innerHTML = renderMenubar() + renderScreens() + renderBottomPanel() + renderStatusbar() + renderLogOverlay() + renderSettingsModal() + renderModelSelector();
   attachEvents();
   attachMenuEvents();
   if (APP.showTerminal) initIntegratedTerminal();
 
-  // Re-attach leader terminal if we're in planning and it was attached before
+  // Update planning chat after re-render
   if (APP.screen === 'planning') {
-    const container = document.getElementById('leader-term');
-    if (container && prevLeaderTerm) {
-      // xterm element was detached by innerHTML, re-open into new container
-      try { prevLeaderTerm.term.open(container); prevLeaderTerm.fit.fit(); } catch (e) {}
-      APP.leaderTerm = prevLeaderTerm;
-    } else if (container && !APP.leaderTerm) {
-      requestAnimationFrame(() => initLeaderTerminal());
-    }
+    updatePlanningChat();
   }
 }
 
@@ -527,6 +721,8 @@ function renderMenubar() {
           <div class="menu-dropdown-item" data-action="toggle-sidebar">Toggle Sidebar<span class="shortcut">Ctrl+B</span></div>
           <div class="menu-dropdown-item" data-action="toggle-terminal">Toggle Terminal<span class="shortcut">Ctrl+\`</span></div>
           <div class="menu-dropdown-item" data-action="toggle-leader">Toggle Leader Panel<span class="shortcut">Ctrl+L</span></div>
+          <div class="menu-separator"></div>
+          <div class="menu-dropdown-item" data-action="toggle-logs">System Logs<span class="shortcut">Ctrl+Shift+L</span></div>
           <div class="menu-separator"></div>
           <div class="menu-dropdown-item" data-action="zoom-in">Zoom In<span class="shortcut">Ctrl+=</span></div>
           <div class="menu-dropdown-item" data-action="zoom-out">Zoom Out<span class="shortcut">Ctrl+-</span></div>
@@ -580,33 +776,106 @@ function renderStatusbar() {
   const doneCount = APP.execTasks.filter(t => t.status === 'done').length;
   const totalTasks = APP.execTasks.length || 0;
   const pct = totalTasks > 0 ? Math.round((doneCount / totalTasks) * 100) : 0;
+  const projectPath = APP.projectDir || '';
+  const projectName = projectPath ? projectPath.split(/[\\/]/).pop() : '';
   return `<div class="statusbar">
-    <span>Synergy v0.2.0</span><span class="sep"></span>
+    <span>Synergy v0.7.0</span><span class="sep"></span>
+    ${projectName ? `<span title="${escapeHtml(projectPath)}">📁 ${escapeHtml(projectName)}</span><span class="sep"></span>` : ''}
     <span>Leader: ${leaderName}</span><span class="sep"></span>
     <span>Workers: ${busyCount}/${totalWorkers}</span><span class="sep"></span>
     <span>Tasks: ${doneCount}/${totalTasks} (${pct}%)<span class="mini-bar"><span class="mini-bar-fill" style="width:${pct}%"></span></span></span>
+    <span style="margin-left:auto;cursor:pointer;color:var(--accent)" onclick="APP.showLogPanel=!APP.showLogPanel;render()" title="View → System Logs (Ctrl+Shift+L)">📋 ${(APP.systemLogs||[]).length}</span>
   </div>`;
+}
+
+function renderLogOverlay() {
+  if (!APP.showLogPanel) return '';
+  const logs = (APP.systemLogs || []).slice(-500);
+  return `<div style="position:fixed;top:30px;right:0;bottom:26px;width:480px;background:var(--bg-surface);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:90;box-shadow:-4px 0 20px rgba(0,0,0,0.3)">
+    <div style="height:34px;display:flex;align-items:center;padding:0 12px;background:var(--bg-crust);border-bottom:1px solid var(--border);font-size:11px;font-weight:600;color:var(--text-sub);text-transform:uppercase;letter-spacing:.5px">
+      <span>System Logs</span>
+      <span style="margin-left:8px;background:var(--surface0);color:var(--accent);padding:1px 6px;border-radius:3px;font-size:9px">${logs.length}</span>
+      <div style="flex:1"></div>
+      <button onclick="APP.systemLogs=[];APP.showLogPanel=false;render()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:11px;margin-right:8px">Clear</button>
+      <button onclick="APP.showLogPanel=false;render()" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:16px">&times;</button>
+    </div>
+    <div id="log-panel-body" style="flex:1;overflow-y:auto;padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:10.5px;line-height:1.6">
+      ${logs.map(l => `<div class="log-line">
+        <span class="log-ts">${escapeHtml(l.ts)}</span>
+        <span class="log-level log-level-${l.level}">${escapeHtml((l.level||'info').toUpperCase())}</span>
+        <span class="log-source">[${escapeHtml(l.source||'?')}]</span>
+        <span class="log-msg">${escapeHtml(l.message||'')}</span>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+function toggleLogPanel() {
+  APP.logPanelCollapsed = !(APP.logPanelCollapsed !== false);
+  const panel = document.getElementById('log-panel');
+  if (panel) panel.classList.toggle('collapsed', APP.logPanelCollapsed);
+}
+
+function appendSystemLog(level, source, message) {
+  if (!APP.systemLogs) APP.systemLogs = [];
+  const ts = new Date().toLocaleTimeString([], { hour12: false }) + '.' + String(new Date().getMilliseconds()).padStart(3, '0');
+  APP.systemLogs.push({ ts, level: level || 'info', source: source || 'ui', message: message || '' });
+  // Keep buffer manageable
+  if (APP.systemLogs.length > 1000) APP.systemLogs.splice(0, APP.systemLogs.length - 1000);
+
+  // Append to DOM if panel visible
+  const body = document.getElementById('log-panel-body');
+  if (body) {
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    div.innerHTML = `
+      <span class="log-ts">${escapeHtml(ts)}</span>
+      <span class="log-level log-level-${level}">${escapeHtml((level||'info').toUpperCase())}</span>
+      <span class="log-source">[${escapeHtml(source||'ui')}]</span>
+      <span class="log-msg">${escapeHtml(message||'')}</span>
+    `;
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+    // Update count
+    const count = document.querySelector('.log-panel-header .log-count');
+    if (count) count.textContent = APP.systemLogs.length;
+    const sbCount = document.querySelector('.statusbar span[onclick="toggleLogPanel()"]');
+    if (sbCount) sbCount.textContent = `📋 Logs (${APP.systemLogs.length})`;
+  }
+  console.log(`[${ts}] [${level}] [${source}] ${message}`);
 }
 
 function renderScreens() {
   return `
+    <div class="screen startup-screen ${APP.screen === 'startup' ? 'active' : ''}" id="screen-startup">
+      ${renderStartup()}
+    </div>
     <div class="screen welcome-screen ${APP.screen === 'welcome' ? 'active' : ''}" id="screen-welcome">
       ${renderWelcome()}
     </div>
-    <div class="screen leader-select-screen ${APP.screen === 'leader_select' ? 'active' : ''}" id="screen-leader-select">
-      ${renderLeaderSelect()}
+    <div class="screen loading-screen ${APP.screen === 'loading' ? 'active' : ''}" id="screen-loading">
+      ${renderLoading()}
     </div>
-    <div class="screen planning-screen ${APP.screen === 'planning' ? 'active' : ''}" id="screen-planning">
-      ${renderPlanning()}
-    </div>
-    <div class="screen plan-review-screen ${APP.screen === 'plan_review' ? 'active' : ''}" id="screen-plan-review">
-      ${renderPlanReview()}
-    </div>
-    <div class="screen executing-screen ${APP.screen === 'executing' ? 'active' : ''}" id="screen-executing">
-      ${renderExecuting()}
+    <div class="screen workspace-screen ${APP.screen === 'workspace' ? 'active' : ''}" id="screen-workspace">
+      ${renderWorkspace()}
     </div>
     <div class="screen complete-screen ${APP.screen === 'complete' ? 'active' : ''}" id="screen-complete">
       ${renderComplete()}
+    </div>
+  `;
+}
+
+function renderStartup() {
+  const status = APP.startupStatus || 'Checking for OpenCode updates...';
+  const detail = APP.startupDetail || '';
+  return `
+    <div class="loading-logo" style="font-size:36px">SYNERGY</div>
+    <div class="loading-spinner"></div>
+    <div class="loading-status">${escapeHtml(status)}</div>
+    ${detail ? `<div class="loading-detail">${escapeHtml(detail)}</div>` : ''}
+    <button class="btn-secondary" id="btn-skip-update" style="margin-top:16px">Skip Update Check</button>
+    <div style="font-size:10px;color:var(--text-dim);max-width:400px;text-align:center;line-height:1.5;margin-top:6px">
+      Updates download in the background and apply on next app start.
     </div>
   `;
 }
@@ -746,7 +1015,7 @@ function renderPlanning() {
 
     <div class="planning-body">
       <div class="planning-terminal-wrap">
-        <div class="planning-terminal" id="leader-term"></div>
+        <div id="leader-chat" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:12px"></div>
       </div>
 
       <div class="planning-context-panel">
@@ -963,6 +1232,265 @@ function renderLeaderPanel() {
   `;
 }
 
+function renderLoading() {
+  const status = APP.loadingStatus || 'Initializing...';
+  const detail = APP.loadingDetail || '';
+  const logLines = (APP.loadingLog || []).map(l =>
+    `<div class="log-line log-${l.level}">${escapeHtml(l.text)}</div>`
+  ).join('');
+
+  return `
+    <div class="loading-logo">SYNERGY</div>
+    <div class="loading-spinner"></div>
+    <div class="loading-status">${escapeHtml(status)}</div>
+    ${detail ? `<div class="loading-detail">${escapeHtml(detail)}</div>` : ''}
+    <div class="loading-progress"><div class="loading-progress-bar"></div></div>
+    ${logLines ? `<div class="loading-log" id="loading-log">${logLines}</div>` : ''}
+  `;
+}
+
+function setLoadingStatus(status, detail) {
+  APP.loadingStatus = status;
+  APP.loadingDetail = detail || '';
+  // Partial update without full re-render
+  const statusEl = document.querySelector('.loading-status');
+  const detailEl = document.querySelector('.loading-detail');
+  if (statusEl) statusEl.textContent = status;
+  if (detailEl) {
+    detailEl.textContent = detail || '';
+    detailEl.style.display = detail ? '' : 'none';
+  }
+  if (!statusEl) render();
+}
+
+function appendLoadingLog(level, text) {
+  if (!APP.loadingLog) APP.loadingLog = [];
+  APP.loadingLog.push({ level, text });
+  const logEl = document.getElementById('loading-log');
+  if (logEl) {
+    const div = document.createElement('div');
+    div.className = 'log-line log-' + level;
+    div.textContent = text;
+    logEl.appendChild(div);
+    logEl.scrollTop = logEl.scrollHeight;
+  } else {
+    // Re-render to show log container
+    render();
+  }
+}
+
+function renderWorkspace() {
+  const projectName = APP.projectDir ? APP.projectDir.split(/[\\/]/).pop() : 'project';
+
+  // 6 worker mini panels
+  let workerCells = '';
+  for (let i = 0; i < APP.workerCount; i++) {
+    const w = APP.workers[i] || { status: 'idle', proxy_addr: '', current_task: null };
+    const statusCls = w.status || 'idle';
+    const ip = (APP.workerIps && APP.workerIps[i]) || 'detecting...';
+    workerCells += `
+      <div class="workspace-worker-cell">
+        <div class="workspace-worker-row">
+          <span class="w-num">W${i + 1}</span>
+          <span class="w-status ${statusCls}">${statusCls}</span>
+          <span class="w-proxy">${escapeHtml(ip)}</span>
+        </div>
+        <div class="workspace-worker-term" id="worker-mini-${i}"></div>
+      </div>
+    `;
+  }
+
+  const leaderIp = APP.leaderIp || 'detecting...';
+  const msgs = (APP.leaderMessages || []).map(m => {
+    if (m.role === 'user') return `<div class="chat-msg user">${escapeHtml(m.content)}</div>`;
+    if (m.role === 'system') return `<div class="chat-msg system">${escapeHtml(m.content)}</div>`;
+    return `<div class="chat-msg assistant"><pre style="white-space:pre-wrap;margin:0;font-family:inherit">${escapeHtml(m.content)}</pre></div>`;
+  }).join('');
+
+  return `
+    <div class="workspace-leader">
+      <div class="workspace-leader-header">
+        <span class="ws-dot"></span>
+        <span>Leader · OpenCode</span>
+        <span style="font-size:10px;color:var(--text-dim);font-family:'JetBrains Mono',monospace;font-weight:400;text-transform:none">${escapeHtml(projectName)}</span>
+        <span style="font-size:10px;color:var(--teal);font-family:'JetBrains Mono',monospace;text-transform:none">IP: ${escapeHtml(leaderIp)}</span>
+        <div class="ws-spacer"></div>
+        ${APP.detectedPlan && APP.detectedPlan.tasks.length > 0 ? `
+          <button id="btn-ws-delegate" style="background:var(--green);color:var(--bg-crust);font-weight:600">
+            ▶ Delegate ${APP.detectedPlan.tasks.length} tasks to Workers
+          </button>
+        ` : ''}
+        <button id="btn-ws-restart" title="Restart OpenCode session">↻ Restart</button>
+      </div>
+      <div class="leader-chat-area" id="leader-chat-area" style="flex:1;overflow-y:auto;padding:14px 18px;display:flex;flex-direction:column;gap:10px;background:var(--bg-overlay)">
+        ${msgs || '<div class="chat-msg system">Leader ready. Type a message or use /commands (try /help).</div>'}
+      </div>
+      <div style="padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--bg-surface)">
+        <input type="text" id="leader-input" placeholder="Message Leader or /command..." style="flex:1;background:var(--bg-overlay);border:1px solid var(--border);border-radius:6px;padding:10px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;outline:none" />
+        <button id="btn-leader-send" style="background:var(--accent);border:none;border-radius:6px;padding:10px 16px;color:var(--bg-crust);font-weight:600;font-size:12px;cursor:pointer">Send</button>
+      </div>
+    </div>
+
+    <div class="workspace-workers">
+      <div class="workspace-workers-header">
+        Workers (${APP.workerCount}) · Each via different proxy IP
+      </div>
+      <div class="workspace-workers-grid">
+        ${workerCells}
+      </div>
+    </div>
+  `;
+}
+
+function shortenProxy(addr) {
+  // socks5://user:pass@host:port -> host:port
+  try {
+    const m = addr.match(/(?:^[a-z]+:\/\/)?(?:[^@\/]+@)?([^\/]+)/);
+    return m ? m[1] : addr;
+  } catch (e) { return addr; }
+}
+
+// --- Leader plan detection ---
+function detectLeaderPlan() {
+  if (!APP.leaderRawBuffer) return;
+  // Look at last 10KB for numbered task list
+  const tail = APP.leaderRawBuffer.slice(-10000);
+  const lines = tail.split('\n');
+
+  const tasks = [];
+  for (const line of lines) {
+    // Match: "1. Description — Files: path1.ext, path2.ext (depends on task N)"
+    const m = line.match(/^\s*(\d+)[.)]\s+(.+?)(?:\s*[—-]\s*Files?:\s*([^()]+?))?(?:\s*\(depends?\s+on\s+(?:task\s+)?(\d+(?:\s*,\s*\d+)*)\))?\s*$/i);
+    if (!m) continue;
+    const num = parseInt(m[1], 10);
+    const desc = m[2].trim();
+    const files = m[3] ? m[3].split(',').map(f => f.trim()).filter(Boolean) : [];
+    const deps = m[4] ? m[4].split(',').map(s => parseInt(s.trim(), 10)).filter(n => !isNaN(n)) : [];
+
+    // Skip lines that look like list-of-something but not actual tasks
+    if (desc.length < 10) continue;
+
+    tasks.push({ num, desc, files, deps });
+  }
+
+  if (tasks.length < 2) {
+    return;
+  }
+
+  // De-dupe by ordinal
+  const unique = new Map();
+  tasks.forEach(t => unique.set(t.num, t));
+  const finalTasks = Array.from(unique.values()).sort((a, b) => a.num - b.num);
+
+  // Only update if changed
+  const newPlan = { tasks: finalTasks, raw: tail };
+  if (!APP.detectedPlan || APP.detectedPlan.tasks.length !== finalTasks.length) {
+    APP.detectedPlan = newPlan;
+    appendSystemLog('info', 'plan-detect', `Detected plan with ${finalTasks.length} tasks!`);
+    finalTasks.forEach(t => appendSystemLog('debug', 'plan-detect', `  Task ${t.num}: ${t.desc.slice(0, 80)}`));
+    // Update header without full re-render to avoid disturbing xterm
+    const header = document.querySelector('.workspace-leader-header');
+    if (header) {
+      let btn = document.getElementById('btn-ws-delegate');
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'btn-ws-delegate';
+        btn.style.cssText = 'background:var(--green);color:var(--bg-crust);font-weight:600';
+        btn.title = 'Delegate detected tasks to parallel Workers';
+        const restart = document.getElementById('btn-ws-restart');
+        if (restart) header.insertBefore(btn, restart);
+        else header.appendChild(btn);
+        btn.addEventListener('click', delegateTasksToWorkers);
+      }
+      btn.textContent = `▶ Delegate ${finalTasks.length} tasks to Workers`;
+    }
+  }
+}
+
+async function delegateTasksToWorkers() {
+  if (!APP.detectedPlan || !APP.detectedPlan.tasks.length) return;
+  appendSystemLog('info', 'frontend', `Delegate clicked: ${APP.detectedPlan.tasks.length} tasks detected`);
+
+  const btn = document.getElementById('btn-ws-delegate');
+  if (btn) { btn.disabled = true; btn.textContent = 'Spawning workers...'; }
+
+  try {
+    // Build plan text in the format approve_plan expects
+    const planText = APP.detectedPlan.tasks.map(t => {
+      let line = `${t.num}. ${t.desc}`;
+      if (t.files.length) line += ` — Files: ${t.files.join(', ')}`;
+      if (t.deps.length) line += ` (depends on task ${t.deps.join(', ')})`;
+      return line;
+    }).join('\n');
+
+    appendSystemLog('debug', 'frontend', `Sending plan to backend (${planText.length} chars)`);
+    const ids = await invoke('approve_plan', {
+      sessionId: APP.sessionId,
+      planText,
+    });
+    appendSystemLog('info', 'frontend', `✓ Backend returned ${ids.length} task IDs: ${JSON.stringify(ids)}`);
+
+    if (btn) btn.textContent = `✓ ${ids.length} workers spawned`;
+
+    APP.detectedPlan.tasks.forEach((t, i) => {
+      const entry = APP.terminals.get(i);
+      if (entry) {
+        entry.term.writeln(`\x1b[36m▶ Task: ${t.desc.slice(0, 60)}\x1b[0m`);
+        if (t.files.length) entry.term.writeln(`\x1b[2m  Files: ${t.files.join(', ')}\x1b[0m`);
+      }
+    });
+
+    APP.detectedPlan = null;
+    setTimeout(() => {
+      const b = document.getElementById('btn-ws-delegate');
+      if (b) b.remove();
+    }, 2500);
+  } catch (e) {
+    appendSystemLog('error', 'frontend', `Delegate failed: ${e}`);
+    if (btn) btn.textContent = `✗ ${e}`;
+    showError('Delegate failed: ' + e);
+  }
+}
+
+async function fetchAllIps() {
+  // Leader IP
+  try {
+    const info = await invoke('get_leader_info', {});
+    APP.leaderProxy = info.proxy_addr || null;
+    const leaderIp = await invoke('get_public_ip', { proxyAddr: info.proxy_addr || null });
+    APP.leaderIp = leaderIp;
+    // Update header IP without full re-render
+    const headerIp = document.querySelector('.workspace-leader-header span[title*="IP via proxy"]');
+    if (headerIp) headerIp.textContent = 'IP: ' + leaderIp;
+  } catch (e) {
+    APP.leaderIp = 'unavailable';
+  }
+
+  // Workers IPs
+  try {
+    const workers = await invoke('get_workers_proxy_info', {});
+    APP.workerIps = APP.workerIps || [];
+    // Fetch in parallel
+    const promises = workers.map(async (w, idx) => {
+      try {
+        const ip = await invoke('get_public_ip', { proxyAddr: w.proxy_addr || null });
+        APP.workerIps[idx] = ip;
+        // Live update the worker proxy span
+        const cells = document.querySelectorAll('.workspace-worker-cell');
+        if (cells[idx]) {
+          const proxyEl = cells[idx].querySelector('.w-proxy');
+          if (proxyEl) proxyEl.textContent = ip;
+        }
+      } catch (e) {
+        APP.workerIps[idx] = 'no-proxy';
+      }
+    });
+    await Promise.all(promises);
+  } catch (e) {
+    console.warn('Could not fetch worker IPs:', e);
+  }
+}
+
 function renderComplete() {
   const elapsed = APP.startTime ? formatElapsed(Date.now() - APP.startTime) : '0:00';
   const doneCount = APP.execTasks.filter(t => t.status === 'done').length;
@@ -1156,20 +1684,52 @@ function handleFolderGo() {
 }
 
 async function loadAdaptersAndGo() {
+  // Reset loading state
+  APP.loadingLog = [];
+  APP.loadingStatus = 'Preparing workspace...';
+  APP.loadingDetail = '';
+
+  goTo('loading');
+
+  // Step 1: Validate folder
+  setLoadingStatus('Validating project folder...', APP.projectDir);
+  appendLoadingLog('info', '> Selected: ' + APP.projectDir);
   try {
     await invoke('select_folder', { path: APP.projectDir });
+    appendLoadingLog('ok', '✓ Folder validated');
   } catch (e) {
+    appendLoadingLog('err', '✗ ' + e);
     showError('select_folder: ' + e);
     return;
   }
+
+  // Step 2: Launch OpenCode
+  setLoadingStatus('Launching OpenCode TUI...', 'Spawning PTY process + sending Leader briefing');
+  appendLoadingLog('info', '> Initializing Leader adapter');
+  APP.selectedAdapter = { id: 'opencode', type: 'cli', desc: 'Bundled OpenCode CLI' };
+  APP.connectionStatus = 'connecting';
+
   try {
-    APP.adapters = await invoke('get_adapters');
+    const sid = await invoke('choose_leader', { adapterId: 'opencode', projectDir: APP.projectDir });
+    if (typeof sid === 'string') APP.sessionId = sid;
+    APP.connectionStatus = 'connected';
+    appendLoadingLog('ok', '✓ OpenCode connected (session: ' + (APP.sessionId || 'n/a') + ')');
   } catch (e) {
-    showError('Failed to load adapters: ' + e);
-    APP.adapters = [];
+    appendLoadingLog('err', '✗ Failed to launch OpenCode: ' + e);
+    showError('Failed to launch OpenCode: ' + e);
+    return;
   }
-  APP.showProviderList = false; // start with default view
-  goTo('leader_select');
+
+  // Wait for OpenCode to process the system prompt (Leader briefing)
+  setLoadingStatus('Briefing Leader AI...', 'System prompt being processed');
+  appendLoadingLog('info', '> Leader receiving role briefing (system prompt)');
+  await new Promise(r => setTimeout(r, 2000));
+  appendLoadingLog('ok', '✓ Leader briefed and ready');
+
+  setLoadingStatus('Ready! Opening workspace...', '');
+  await new Promise(r => setTimeout(r, 400));
+
+  goTo('workspace');
 }
 
 async function handleAdapterSelect(adapterId) {
@@ -1201,8 +1761,9 @@ async function handleAdapterSelect(adapterId) {
     return;
   }
 
-  APP.leaderMessages = [{ role: 'system', content: `Leader selected: ${adapter.id} (${adapter.type || adapter.adapter_type}). Describe what you want to build.` }];
-  goTo('executing');
+  APP.messages = [{ role: 'system', content: `Leader connected: ${adapter.id} (${adapter.type || adapter.adapter_type}). Describe what you want to build.` }];
+  APP.leaderMessages = [];
+  goTo('planning');
 }
 
 async function handleChatSend() {
@@ -1211,14 +1772,9 @@ async function handleChatSend() {
   const text = input.value.trim();
   input.value = '';
 
-  // Echo user message to the leader terminal
-  if (APP.leaderTerm) {
-    APP.leaderTerm.term.write(`\r\n\x1b[36m> ${text}\x1b[0m\r\n`);
-  }
-
   APP.messages.push({ role: 'user', content: text });
 
-  // Auto-detect numbered plan in user's own message
+  // Auto-detect numbered plan
   const lines = text.split('\n');
   const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
   if (numbered.length >= 1) {
@@ -1226,14 +1782,30 @@ async function handleChatSend() {
     APP.planTasks = numbered.map(m => m[2]);
   }
 
+  // Add typing indicator
+  APP.messages.push({ role: 'assistant', content: '', typing: true });
+  updatePlanningChat();
+
   try {
-    // For OpenCode TUI, send the message + Enter
-    await invoke('send_to_leader', { message: text + '\r' });
+    await invoke('send_to_leader', { message: text });
   } catch (e) {
-    if (APP.leaderTerm) {
-      APP.leaderTerm.term.write(`\r\n\x1b[31mError: ${e}\x1b[0m\r\n`);
-    }
+    APP.messages = APP.messages.filter(m => !m.typing);
+    APP.messages.push({ role: 'system', content: `Error: ${e}` });
+    updatePlanningChat();
   }
+}
+
+function updatePlanningChat() {
+  const chat = document.getElementById('leader-chat');
+  if (!chat) return;
+  chat.innerHTML = APP.messages.map(m => {
+    const cls = m.role === 'user' ? 'chat-msg user'
+              : m.role === 'system' ? 'chat-msg system'
+              : 'chat-msg assistant';
+    const content = m.typing ? '<span style="opacity:.6">▌ thinking...</span>' : escapeHtml(m.content);
+    return `<div class="${cls}">${content}</div>`;
+  }).join('');
+  chat.scrollTop = chat.scrollHeight;
 }
 
 async function handleExecuteDirect() {
@@ -1331,14 +1903,13 @@ async function handleLeaderSend() {
     return;
   }
 
-  APP.leaderMessages.push({ role: 'system', content: 'Sending to Leader...', streaming: true, typing: true });
   updateLeaderChat();
 
   try {
-    await invoke('send_to_leader', { message: text });
+    // OpenCode is a TUI — append \r to submit the message
+    await invoke('send_to_leader', { message: text + '\r' });
   } catch (e) {
-    APP.leaderMessages = APP.leaderMessages.filter(m => !m.typing);
-    APP.leaderMessages.push({ role: 'system', content: `Error sending message: ${e}` });
+    APP.leaderMessages.push({ role: 'system', content: `Error: ${e}` });
     updateLeaderChat();
   }
 }
@@ -1416,6 +1987,16 @@ function handleMenuAction(action) {
     case 'toggle-sidebar':
       toggleSidebar();
       break;
+    case 'toggle-logs':
+      APP.showLogPanel = !APP.showLogPanel;
+      render();
+      if (APP.showLogPanel) {
+        setTimeout(() => {
+          const body = document.getElementById('log-panel-body');
+          if (body) body.scrollTop = body.scrollHeight;
+        }, 50);
+      }
+      break;
     case 'toggle-terminal':
       toggleTerminal();
       break;
@@ -1445,7 +2026,7 @@ function handleMenuAction(action) {
       document.body.style.fontSize = (parseInt(getComputedStyle(document.body).fontSize) - 1) + 'px';
       break;
     case 'about':
-      alert('Synergy v0.2.0\nMulti-App AI Workspace Orchestrator');
+      alert('Synergy v0.3.0 — Kiro UI\nMulti-App AI Workspace Orchestrator');
       break;
   }
 }
@@ -1543,7 +2124,7 @@ function initLeaderTerminal() {
 
   // Send keystrokes to PTY
   term.onData(data => {
-    invoke('send_to_leader', { message: data }).catch(()=>{});
+    invoke('send_raw_to_leader', { data: data }).catch(()=>{});
   });
 
   APP.leaderTerm = { term, fit };
@@ -1578,8 +2159,12 @@ function disposeTerminals() {
 }
 
 async function subscribeEvents() {
+  appendSystemLog('info', 'boot', 'Subscribing to Tauri events...');
+
   await listen('leader-connection-status', ev => {
     const data = ev.payload || ev;
+    appendSystemLog('info', 'event', `leader-connection-status: ${data.status} — ${data.message || ''}`);
+
     APP.connectionStatus = data.status; // 'connecting', 'connected', 'failed'
     APP.connectionMessage = data.message || '';
     APP.connectionType = data.connection_type || '';
@@ -1597,73 +2182,65 @@ async function subscribeEvents() {
     if (entry) entry.term.write(p.chunk);
   });
 
+  // Listen for backend system logs
+  await listen('synergy-log', ev => {
+    const p = ev.payload || ev;
+    appendSystemLog(p.level, p.source, p.message);
+  });
+
   await listen('leader-output', ev => {
     const p = ev.payload || ev;
     const raw = p.chunk || '';
     if (!raw) return;
 
-    if (APP.selectedAdapter && APP.selectedAdapter.type === 'cli') {
-      // Write directly to Leader Terminal
-      if (APP.leaderTerm) {
-        APP.leaderTerm.term.write(raw);
+    // For workspace screen: append to chat messages (headless run mode)
+    if (APP.screen === 'workspace') {
+      // Strip ANSI for chat display
+      const text = raw.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+                      .replace(/\x1b\][^\x07]*\x07/g, '')
+                      .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+      if (!text) return;
+
+      appendSystemLog('debug', 'leader-output', `Received ${text.length} chars: "${text.slice(0, 80)}..."`);
+
+      // Remove "thinking" indicator
+      APP.leaderMessages = APP.leaderMessages.filter(m => m.content !== '⏳ Thinking...');
+
+      // Detect new turn marker
+      const NEW_TURN = '\u200B__SYNERGY_NEW_TURN__\u200B';
+      if (text.includes(NEW_TURN)) {
+        const clean = text.replace(NEW_TURN, '').trim();
+        if (clean) APP.leaderMessages.push({ role: 'assistant', content: clean });
+        appendSystemLog('info', 'leader-output', 'New turn marker detected — new response bubble');
+        updateLeaderChatUI();
+        return;
       }
-      
-      // Also accumulate raw text for plan detection (strip ansi)
-      const cleanText = raw.replace(/\x1b\[[0-9;]*[mGKHFABCDJnsu]/g, '').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-      APP.leaderRawBuffer = (APP.leaderRawBuffer || '') + cleanText;
-      
-      // Basic plan detection from raw buffer
-      const lines = APP.leaderRawBuffer.split('\n');
-      const numbered = lines.map(l => l.match(/^\s*(\d+)[.)]\s+(.+)$/)).filter(Boolean);
-      if (numbered.length >= 2) {
-        const newTasks = numbered.map(m => m[2]);
-        if (!APP.planTasks || APP.planTasks.length !== newTasks.length) {
-          APP.planText = APP.leaderRawBuffer;
-          APP.planTasks = newTasks;
-          if (APP.screen === 'executing') render(); 
-        }
+
+      // Accumulate into last assistant message
+      const lastMsg = APP.leaderMessages[APP.leaderMessages.length - 1];
+      if (lastMsg && lastMsg.role === 'assistant' && !lastMsg.completed) {
+        lastMsg.content += text;
+      } else {
+        APP.leaderMessages.push({ role: 'assistant', content: text });
       }
+
+      // Plan detection
+      APP.leaderRawBuffer = (APP.leaderRawBuffer || '') + text;
+      if (APP.leaderRawBuffer.length > 100000) APP.leaderRawBuffer = APP.leaderRawBuffer.slice(-50000);
+      detectLeaderPlan();
+
+      updateLeaderChatUI();
       return;
     }
 
-    // Strip ANSI escape codes for display (for API/GUI adapters)
-    const text = raw.replace(/\x1b\[[0-9;]*[mGKHFABCDJnsu]/g, '')
-                    .replace(/\x1b\][^\x07]*\x07/g, '')
-                    .replace(/\x1b[()][AB012]/g, '')
-                    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
-
-    if (!text.trim()) return;
-
-    // Remove typing indicator
-    APP.leaderMessages = APP.leaderMessages.filter(m => !m.typing);
-    
-    if (APP.screen === 'planning' || APP.screen === 'leader_select') {
-      // Accumulate into last assistant message or create new one
-      const lastMsg = APP.messages[APP.messages.length - 1];
-      if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
-        lastMsg.content += text;
-      } else {
-        APP.messages.push({ role: 'assistant', content: text, streaming: true });
-      }
-      detectPlan(APP.messages);
-      // Update chat area without full re-render for performance
-      const chatArea = document.getElementById('chat-area');
-      if (chatArea) {
-        const msgs = APP.messages.map(m => `<div class="chat-msg ${m.role}">${escapeHtml(m.content)}</div>`).join('');
-        chatArea.innerHTML = msgs;
-        chatArea.scrollTop = chatArea.scrollHeight;
-      } else {
-        render();
-      }
-    } else if (APP.screen === 'executing') {
-      const lastMsg = APP.leaderMessages[APP.leaderMessages.length - 1];
-      if (lastMsg && lastMsg.role === 'assistant' && lastMsg.streaming) {
-        lastMsg.content += text;
-      } else {
-        APP.leaderMessages.push({ role: 'assistant', content: text, streaming: true });
-      }
-      detectPlan(APP.leaderMessages);
-      updateLeaderChat();
+    // Legacy: chat-style stripping for older screens
+    let text = raw.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
+                  .replace(/\x1b\][^\x07]*\x07/g, '')
+                  .replace(/\x1b[()][AB012]/g, '')
+                  .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+    APP.leaderRawBuffer = (APP.leaderRawBuffer || '') + text;
+    if (APP.leaderRawBuffer.length > 50000) {
+      APP.leaderRawBuffer = APP.leaderRawBuffer.slice(-30000);
     }
   });
 
@@ -1963,6 +2540,10 @@ document.addEventListener('keydown', (e) => {
 
 // --- Boot ---
 (async function init() {
+  // Set initial screen to startup (update check)
+  APP.screen = 'startup';
+  APP.startupStatus = 'Initializing...';
+
   try {
     APP.recentProjects = await invoke('get_recent_projects');
   } catch(e) {
@@ -1970,16 +2551,76 @@ document.addEventListener('keydown', (e) => {
     APP.recentProjects = [];
   }
 
-  try {
-    APP.adapters = await invoke('get_adapters');
-  } catch(e) {
-    console.warn('Could not load adapters:', e);
-    APP.adapters = [];
-  }
-
   render();
   await subscribeEvents();
+
+  // Wire skip button
+  document.getElementById('btn-skip-update')?.addEventListener('click', () => {
+    APP.skipUpdateCheck = true;
+  });
+
+  // Run update check with timeout — proceed to welcome regardless
+  await checkUpdateAtStartup();
+
+  goTo('welcome');
 })();
+
+async function checkUpdateAtStartup() {
+  APP.startupStatus = 'Checking for OpenCode updates...';
+  APP.startupDetail = '';
+
+  // Update status partially without full re-render
+  const updateUI = () => {
+    const statusEl = document.querySelector('.startup-screen .loading-status');
+    const detailEl = document.querySelector('.startup-screen .loading-detail');
+    if (statusEl) statusEl.textContent = APP.startupStatus;
+    if (detailEl && APP.startupDetail) detailEl.textContent = APP.startupDetail;
+  };
+  updateUI();
+
+  // Race: update check vs 5-second timeout vs user skip
+  const checkPromise = invoke('check_opencode_update', {});
+  const timeoutPromise = new Promise(resolve => setTimeout(() => resolve('__timeout__'), 5000));
+  const skipPromise = new Promise(resolve => {
+    const interval = setInterval(() => {
+      if (APP.skipUpdateCheck) {
+        clearInterval(interval);
+        resolve('__skipped__');
+      }
+    }, 100);
+  });
+
+  let result;
+  try {
+    result = await Promise.race([checkPromise, timeoutPromise, skipPromise]);
+  } catch (e) {
+    result = '__error__:' + e;
+  }
+
+  if (result === '__timeout__') {
+    APP.startupStatus = 'Update check taking too long...';
+    APP.startupDetail = 'Continuing without update. Background install will retry next start.';
+    updateUI();
+    // Trigger background install (fire & forget)
+    invoke('check_opencode_update', {}).catch(() => {});
+    await new Promise(r => setTimeout(r, 800));
+  } else if (result === '__skipped__') {
+    APP.startupStatus = 'Update check skipped';
+    APP.startupDetail = 'Will retry on next start';
+    updateUI();
+    invoke('check_opencode_update', {}).catch(() => {});
+    await new Promise(r => setTimeout(r, 400));
+  } else if (typeof result === 'string' && result.startsWith('__error__')) {
+    APP.startupStatus = 'Update check failed (continuing)';
+    updateUI();
+    await new Promise(r => setTimeout(r, 600));
+  } else {
+    APP.startupStatus = 'OpenCode is ready';
+    APP.startupDetail = result || 'Up to date';
+    updateUI();
+    await new Promise(r => setTimeout(r, 500));
+  }
+}
 
 </script>
 </body>

@@ -69,9 +69,16 @@ impl SessionFlowController {
     }
 
     /// Advance to FolderSelected after the user picks a project directory.
+    /// Allows re-selecting a folder at any phase by resetting the session state.
     pub fn select_folder(&mut self, path: String) -> Result<(), String> {
+        // If we're past FolderSelected (e.g. LeaderChosen, Planning, etc.),
+        // reset everything so the user can start a new session with a new folder.
         if self.phase != SessionPhase::Idle && self.phase != SessionPhase::FolderSelected {
-            return Err(format!("Cannot select folder in phase {:?}", self.phase));
+            self.leader_adapter = None;
+            self.leader_handle = None;
+            self.leader_adapter_id = None;
+            self.session_id = None;
+            self.leader_output_buffer.clear();
         }
         self.project_dir = Some(path);
         self.phase = SessionPhase::FolderSelected;
@@ -150,6 +157,22 @@ impl SessionFlowController {
 
         adapter
             .send_command(handle, message)
+            .await
+            .map_err(|e| format!("{e:#}"))
+    }
+
+    pub async fn send_raw_to_leader(&mut self, data: &str) -> Result<(), String> {
+        let adapter = self
+            .leader_adapter
+            .as_ref()
+            .ok_or("Leader adapter not initialized")?;
+        let handle = self
+            .leader_handle
+            .as_mut()
+            .ok_or("Leader handle not initialized")?;
+
+        adapter
+            .send_raw(handle, data)
             .await
             .map_err(|e| format!("{e:#}"))
     }

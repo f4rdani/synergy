@@ -1,11 +1,12 @@
 {
   "productName": "Synergy",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "identifier": "com.synergy.app",
   "build": {
     "frontendDist": "../synergy-ui/dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",

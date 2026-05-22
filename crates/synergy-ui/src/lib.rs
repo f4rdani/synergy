@@ -33,6 +33,20 @@ use synergy_proxy::ProxyManager;
 use tauri::{AppHandle, Builder, Emitter, Manager, Runtime, State};
 use tokio::sync::Mutex;
 
+// ─── Logging helper ─────────────────────────────────────────────────────
+/// Emit a structured log event to both stderr (terminal) and the frontend.
+fn log_event<R: Runtime>(app: &AppHandle<R>, level: &str, source: &str, message: impl std::fmt::Display) {
+    let msg = message.to_string();
+    let ts = chrono::Utc::now().format("%H:%M:%S%.3f").to_string();
+    eprintln!("[{ts}] [{level}] [{source}] {msg}");
+    let _ = app.emit("synergy-log", serde_json::json!({
+        "ts": &ts,
+        "level": level,
+        "source": source,
+        "message": &msg,
+    }));
+}
+
 /// Embedded adapters.toml content -- lists all supported Leader/Worker adapters.
 const ADAPTERS_TOML: &str = include_str!("../../../adapters.toml");
 
@@ -104,7 +118,10 @@ pub struct InitArgs {
 
 fn pick_adapter(id: &str) -> Arc<dyn AppAdapter> {
     match id {
-        "opencode" => Arc::new(OpenCodeAdapter),
+        // Headless run mode — chat-style, no TUI glitches
+        "opencode" => Arc::new(synergy_adapter::OpenCodeRunAdapter::new()),
+        // Legacy TUI mode
+        "opencode-tui" => Arc::new(OpenCodeAdapter),
         "cursor" => Arc::new(synergy_adapter::CursorAdapter),
         "kiro" => Arc::new(synergy_adapter::KiroAdapter),
         "antigravity" => Arc::new(synergy_adapter::AntigravityAdapter),
@@ -686,15 +703,46 @@ async fn choose_leader<R: Runtime>(
 
     // Launch the Leader process (PTY for CLI, placeholder for GUI)
     // Resolve actual binary from adapters.toml (e.g. "claude-cli" -> "claude")
-    let bin_path = resolve_adapter_bin(&adapter_id);
+    let mut bin_path = resolve_adapter_bin(&adapter_id);
+
+    // For OpenCode, prefer the bundled binary if available
+    if adapter_id == "opencode" {
+        if let Some(bundled) = synergy_adapter::find_opencode_binary() {
+            bin_path = bundled;
+        }
+    }
+
+    // Pull proxy for the Leader (slot 0 reserved for Leader, workers get 1..=N)
+    let leader_proxy = {
+        let proxy_configs = cfg.proxy.to_proxy_configs(cfg.workers.count + 1);
+        proxy_configs.first().map(|p| p.address.clone())
+    };
 
     // For GUI adapters, check if the app is already running before trying to launch
     let is_gui = adapter.app_type() == AppType::Gui;
+
+    // Force free model for OpenCode + inject Leader system prompt
+    let args = if adapter_id == "opencode" {
+        let leader_prompt = synergy_core::leader::leader_system_prompt(
+            &project_dir,
+            cfg.workers.count,
+        );
+        vec![
+            "--model".to_owned(),
+            "opencode/deepseek-v4-flash-free".to_owned(),
+            "--pure".to_owned(),
+            "--prompt".to_owned(),
+            leader_prompt,
+        ]
+    } else {
+        Vec::new()
+    };
+
     let launch_config = LaunchConfig {
         bin_path: bin_path.clone(),
-        args: Vec::new(),
+        args,
         cwd: Some(project_dir.clone()),
-        proxy_addr: None,
+        proxy_addr: leader_proxy.clone(),
     };
 
     let handle = match adapter.launch(&launch_config).await {
@@ -754,14 +802,16 @@ async fn choose_leader<R: Runtime>(
     // Give the pump a moment to start
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    // After leader is connected, send the system prompt to teach it how to plan
-    {
+    // For OpenCode (run mode), skip the system prompt — it would consume an
+    // extra `opencode run` call and the user's first message includes intent.
+    // For other CLI tools (Aider, etc.) send the prompt as the first instruction.
+    if adapter_id != "opencode" {
         let mut flow = state.session_flow.lock().await;
         let prompt = synergy_core::leader::leader_system_prompt(
             &project_dir,
             cfg.workers.count,
         );
-        flow.send_to_leader(&prompt).await.ok(); // best effort
+        flow.send_to_leader(&prompt).await.ok();
     }
 
     // Store DB handle
@@ -786,6 +836,176 @@ async fn send_to_leader(state: State<'_, AppState>, message: String) -> Result<(
     flow.send_to_leader(&message).await
 }
 
+#[tauri::command]
+async fn send_raw_to_leader(state: State<'_, AppState>, data: String) -> Result<(), String> {
+    let mut flow = state.session_flow.lock().await;
+
+    if flow.phase == SessionPhase::LeaderChosen {
+        flow.advance_to_planning();
+    }
+
+    flow.send_raw_to_leader(&data).await
+}
+
+/// Fetch the public IP address used by a given proxy.
+/// If proxy is None, returns the direct IP (no proxy).
+#[tauri::command]
+async fn get_public_ip(proxy_addr: Option<String>) -> Result<String, String> {
+    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(8));
+    if let Some(ref addr) = proxy_addr {
+        if !addr.is_empty() {
+            let proxy = reqwest::Proxy::all(addr).map_err(|e| format!("invalid proxy: {e}"))?;
+            builder = builder.proxy(proxy);
+        }
+    }
+    let client = builder.build().map_err(|e| e.to_string())?;
+
+    // Try multiple endpoints — some are blocked or rate-limited
+    let endpoints = ["https://api.ipify.org", "https://icanhazip.com", "https://ifconfig.me/ip"];
+    for url in endpoints {
+        if let Ok(resp) = client.get(url).send().await {
+            if resp.status().is_success() {
+                if let Ok(text) = resp.text().await {
+                    let ip = text.trim().to_owned();
+                    if !ip.is_empty() && ip.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ':') {
+                        return Ok(ip);
+                    }
+                }
+            }
+        }
+    }
+    Err("Could not fetch public IP".to_owned())
+}
+
+/// Get connection info for the Leader (proxy address + public IP if available).
+#[tauri::command]
+async fn get_leader_info(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let flow = state.session_flow.lock().await;
+    let adapter_id = flow.leader_adapter_id.clone().unwrap_or_else(|| "none".to_owned());
+
+    let cfg = SynergyConfig::load_default().unwrap_or_default();
+    let proxy_configs = cfg.proxy.to_proxy_configs(cfg.workers.count + 1);
+    let leader_proxy = proxy_configs.first().map(|p| p.address.clone());
+
+    Ok(serde_json::json!({
+        "adapter_id": adapter_id,
+        "proxy_addr": leader_proxy,
+    }))
+}
+
+/// List proxy addresses for all workers.
+#[tauri::command]
+async fn get_workers_proxy_info() -> Result<Vec<serde_json::Value>, String> {
+    let cfg = SynergyConfig::load_default().unwrap_or_default();
+    let proxy_configs = cfg.proxy.to_proxy_configs(cfg.workers.count + 1);
+    // Skip first (Leader); rest are workers
+    let workers: Vec<serde_json::Value> = proxy_configs
+        .iter()
+        .skip(1)
+        .enumerate()
+        .map(|(i, p)| {
+            serde_json::json!({
+                "id": i,
+                "label": p.label.clone().unwrap_or_else(|| format!("worker-{}", i + 1)),
+                "proxy_addr": p.address.clone(),
+            })
+        })
+        .collect();
+    Ok(workers)
+}
+#[tauri::command]
+async fn resize_leader_pty(state: State<'_, AppState>, rows: u16, cols: u16) -> Result<(), String> {
+    let mut flow = state.session_flow.lock().await;
+    let adapter = flow.leader_adapter.clone().ok_or("No leader adapter")?;
+    let handle = flow.leader_handle.as_mut().ok_or("No leader handle")?;
+    adapter.resize_pty(handle, rows, cols).await.map_err(|e| e.to_string())
+}
+
+/// Restart the Leader process (e.g. after user typed /exit in OpenCode).
+/// Re-launches the same adapter with the same project_dir.
+#[tauri::command]
+async fn restart_leader<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (adapter_id, project_dir) = {
+        let flow = state.session_flow.lock().await;
+        let id = flow.leader_adapter_id.clone().ok_or("No leader to restart")?;
+        let dir = flow.project_dir.clone().ok_or("No project dir")?;
+        (id, dir)
+    };
+
+    // Drop old leader handle (releases PTY)
+    {
+        let mut flow = state.session_flow.lock().await;
+        flow.leader_handle = None;
+        flow.leader_adapter = None;
+        flow.leader_adapter_id = None;
+        flow.session_id = None;
+        flow.phase = SessionPhase::FolderSelected;
+    }
+
+    // Re-launch same leader
+    choose_leader(app, state, adapter_id, project_dir).await?;
+    Ok(())
+}
+
+/// Run an OpenCode CLI subcommand (for slash commands like /model, /help, etc.)
+/// Returns the stdout output as a string.
+#[tauri::command]
+async fn run_opencode_command(args: Vec<String>) -> Result<String, String> {
+    let bin = synergy_adapter::find_opencode_binary()
+        .ok_or("OpenCode binary not found")?;
+
+    eprintln!("[run_opencode_command] {} {:?}", &bin, &args);
+
+    let output = tokio::process::Command::new(&bin)
+        .args(&args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run opencode: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    let mut result = stdout;
+    if !stderr.is_empty() && !output.status.success() {
+        result.push('\n');
+        result.push_str(&stderr);
+    }
+
+    Ok(result.trim().to_owned())
+}
+
+/// Check for OpenCode updates by running `opencode upgrade`.
+#[tauri::command]
+async fn check_opencode_update() -> Result<String, String> {
+    let bin = synergy_adapter::find_opencode_binary()
+        .ok_or("OpenCode binary not found")?;
+
+    let output = tokio::process::Command::new(&bin)
+        .arg("upgrade")
+        .output()
+        .await
+        .map_err(|e| format!("Failed to run upgrade: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}{}", stdout, stderr);
+
+    if output.status.success() {
+        if combined.trim().is_empty() {
+            Ok("OpenCode is up to date".to_owned())
+        } else {
+            Ok(combined.trim().to_owned())
+        }
+    } else {
+        Err(format!("Upgrade failed: {}", combined.trim()))
+    }
+}
+
 /// Approve the Leader's plan: parse tasks, insert into DB, spawn workers,
 /// and start the orchestrator tick loop.
 ///
@@ -797,13 +1017,26 @@ async fn approve_plan<R: Runtime>(
     session_id: String,
     plan_text: String,
 ) -> Result<Vec<String>, String> {
+    log_event(&app, "info", "approve_plan", format!("Called with session_id={session_id}, plan_text length={}", plan_text.len()));
+    log_event(&app, "debug", "approve_plan", format!("Plan text:\n{plan_text}"));
+
     // Parse the plan into task drafts
     let drafts = synergy_core::leader::parse_plan(&plan_text);
+    log_event(&app, "info", "approve_plan", format!("Parsed {} task drafts", drafts.len()));
+
     if drafts.is_empty() {
+        log_event(&app, "error", "approve_plan", "No tasks parsed from plan");
         return Err("No tasks could be parsed from plan".into());
     }
+
     let deps = synergy_core::leader::infer_dependencies(&drafts);
     let tasks = synergy_core::leader::drafts_to_tasks(&session_id, &drafts, &deps);
+
+    for (i, t) in tasks.iter().enumerate() {
+        log_event(&app, "debug", "approve_plan",
+            format!("Task #{}: id={}, title='{}', deps={:?}, files={:?}",
+                i + 1, t.id, t.title, t.depends_on, t.files_target));
+    }
 
     // Insert tasks into DB
     let db_opt = state.db.lock().await;
@@ -814,6 +1047,7 @@ async fn approve_plan<R: Runtime>(
             db.insert_task(t).map_err(|e| e.to_string())?;
         }
     }
+    log_event(&app, "info", "approve_plan", format!("Inserted {} tasks into DB", tasks.len()));
 
     let ids: Vec<String> = tasks.iter().map(|t| t.id.clone()).collect();
     let task_count = ids.len() as u32;
@@ -824,6 +1058,7 @@ async fn approve_plan<R: Runtime>(
         flow.approve_plan(plan_text, task_count);
         flow.advance_to_executing();
     }
+    log_event(&app, "info", "approve_plan", "Session flow advanced to Executing");
 
     // Set up orchestrator with worker adapter (default: opencode for workers)
     let cfg = SynergyConfig::load_default().unwrap_or_default();
@@ -832,9 +1067,15 @@ async fn approve_plan<R: Runtime>(
         .unwrap_or_else(|| cfg.workers.bin_path.clone());
     let max_workers = cfg.workers.count;
 
+    log_event(&app, "info", "approve_plan",
+        format!("Worker config: adapter={worker_adapter_id}, bin={worker_bin}, max={max_workers}"));
+
     // Calculate how many workers to spawn based on independent (parallelizable) tasks
     let independent_task_count = tasks.iter().filter(|t| t.depends_on.is_empty()).count();
     let actual_worker_count = (independent_task_count as u32).min(max_workers);
+
+    log_event(&app, "info", "approve_plan",
+        format!("Spawning {} workers ({} independent tasks, max={})", actual_worker_count, independent_task_count, max_workers));
 
     let proxy_configs = cfg.proxy.to_proxy_configs(actual_worker_count);
     let pm = ProxyManager::new(proxy_configs);
@@ -848,10 +1089,17 @@ async fn approve_plan<R: Runtime>(
         flow.project_dir.clone()
     };
 
+    log_event(&app, "info", "approve_plan", format!("Spawning workers in cwd={:?}", project_dir));
+
     orchestrator
         .spawn_workers(actual_worker_count as usize, &worker_bin, project_dir.as_deref())
         .await
-        .map_err(|e| format!("Failed to spawn workers: {e:#}"))?;
+        .map_err(|e| {
+            log_event(&app, "error", "approve_plan", format!("Failed to spawn workers: {e:#}"));
+            format!("Failed to spawn workers: {e:#}")
+        })?;
+
+    log_event(&app, "info", "approve_plan", format!("✓ {} workers spawned successfully", actual_worker_count));
 
     // Set worker model if configured
     let worker_model = cfg.workers.model.clone();
@@ -860,18 +1108,22 @@ async fn approve_plan<R: Runtime>(
             .set_worker_model(&worker_model)
             .await
             .map_err(|e| format!("Failed to set worker model: {e:#}"))?;
+        log_event(&app, "info", "approve_plan", format!("Worker model set to: {worker_model}"));
     }
 
     let orch_arc = Arc::new(orchestrator);
     spawn_tick_loop(app.clone(), orch_arc.clone());
     spawn_output_pump(app.clone(), orch_arc.clone());
+    log_event(&app, "info", "approve_plan", "Orchestrator tick loop and output pump started");
 
     // Store orchestrator
     *state.orchestrator.lock().await = Some(orch_arc.clone());
 
     // Spawn a task that monitors completion and sends batch report to Leader
-    spawn_completion_monitor(app, state.session_flow.clone(), orch_arc, db_arc.clone());
+    spawn_completion_monitor(app.clone(), state.session_flow.clone(), orch_arc, db_arc.clone());
+    log_event(&app, "info", "approve_plan", "Completion monitor started — will send batch report to Leader when all tasks done");
 
+    log_event(&app, "info", "approve_plan", format!("✓ Returning {} task IDs to frontend", ids.len()));
     Ok(ids)
 }
 
@@ -1541,6 +1793,14 @@ pub fn register_handlers<R: Runtime>(builder: Builder<R>) -> Builder<R> {
             select_folder,
             choose_leader,
             send_to_leader,
+            send_raw_to_leader,
+            resize_leader_pty,
+            restart_leader,
+            check_opencode_update,
+            run_opencode_command,
+            get_public_ip,
+            get_leader_info,
+            get_workers_proxy_info,
             approve_plan,
             get_session_flow_state,
             fetch_leader_models,

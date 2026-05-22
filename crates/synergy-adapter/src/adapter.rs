@@ -37,6 +37,18 @@ pub trait AppAdapter: Send + Sync {
 
     async fn launch(&self, config: &LaunchConfig) -> Result<AppHandle>;
     async fn send_command(&self, handle: &mut AppHandle, text: &str) -> Result<()>;
+    async fn send_raw(&self, handle: &mut AppHandle, data: &str) -> Result<()> {
+        self.send_command(handle, data).await
+    }
     async fn read_output(&self, handle: &mut AppHandle) -> Option<String>;
     async fn detect_status(&self, output_buffer: &str) -> AppStatus;
+
+    /// Resize the underlying PTY (if any). Default implementation is a no-op.
+    async fn resize_pty(&self, handle: &mut AppHandle, rows: u16, cols: u16) -> Result<()> {
+        if let Some(ref pty) = handle.pty_session {
+            pty.resize(rows, cols)?;
+        }
+        let _ = (rows, cols);
+        Ok(())
+    }
 }

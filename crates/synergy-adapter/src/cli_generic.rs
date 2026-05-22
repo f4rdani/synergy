@@ -89,6 +89,15 @@ impl AppAdapter for GenericCliAdapter {
         }
     }
 
+    async fn send_raw(&self, handle: &mut AppHandle, data: &str) -> Result<()> {
+        if let Some(ref mut pty) = handle.pty_session {
+            pty.write(data)?;
+            Ok(())
+        } else {
+            Err(anyhow!("No PTY session active"))
+        }
+    }
+
     async fn read_output(&self, handle: &mut AppHandle) -> Option<String> {
         if let Some(ref mut pty) = handle.pty_session {
             pty.try_read()

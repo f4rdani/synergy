@@ -4,6 +4,7 @@ pub mod cli_antigravity;
 pub mod cli_codex;
 pub mod cli_generic;
 pub mod cli_opencode;
+pub mod cli_opencode_run;
 pub mod gui_cursor;
 pub mod gui_kiro;
 
@@ -13,5 +14,6 @@ pub use cli_antigravity::AntigravityAdapter;
 pub use cli_codex::CodexAdapter;
 pub use cli_generic::GenericCliAdapter;
 pub use cli_opencode::OpenCodeAdapter;
+pub use cli_opencode_run::{find_opencode_binary, OpenCodeRunAdapter};
 pub use gui_cursor::CursorAdapter;
 pub use gui_kiro::KiroAdapter;
